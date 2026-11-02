@@ -42,7 +42,7 @@ export const AttendanceCheckInPage: React.FC = () => {
 
   // Geolocation & Simulation states
   const [simulationMode, setSimulationMode] = useState<'INSIDE' | 'OUTSIDE' | 'DRIFT'>('INSIDE');
-  const [mapView, setMapView] = useState<'LEAFLET' | 'RADAR'>('LEAFLET');
+  const [mapView, setMapView] = useState<'LEAFLET' | 'ALMATY_SCHEMATIC' | 'RADAR'>('LEAFLET');
   const [useDeviceGps, setUseDeviceGps] = useState(false);
   const [isLocating, setIsLocating] = useState(false);
   const [checkInResult, setCheckInResult] = useState<{
@@ -384,7 +384,16 @@ export const AttendanceCheckInPage: React.FC = () => {
                       mapView === 'LEAFLET' ? 'bg-[#0B3D91] text-white' : 'text-slate-600 hover:text-[#0B3D91]'
                     }`}
                   >
-                    OSM Map
+                    OSM Almaty Map
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setMapView('ALMATY_SCHEMATIC')}
+                    className={`px-2 py-0.5 rounded ${
+                      mapView === 'ALMATY_SCHEMATIC' ? 'bg-[#0B3D91] text-white' : 'text-slate-600 hover:text-[#0B3D91]'
+                    }`}
+                  >
+                    Campus Layout
                   </button>
                   <button
                     type="button"
@@ -402,14 +411,97 @@ export const AttendanceCheckInPage: React.FC = () => {
               </div>
             </div>
 
-            {/* Map or Radar View */}
+            {/* Map, Campus Layout, or Radar View */}
             {mapView === 'LEAFLET' ? (
               <CampusMap
                 studentLat={SIMULATION_PRESETS[simulationMode].lat}
                 studentLng={SIMULATION_PRESETS[simulationMode].lng}
                 status={simulationMode}
-                className="h-64"
               />
+            ) : mapView === 'ALMATY_SCHEMATIC' ? (
+              <div className="relative w-full h-72 bg-[#F0F5FD] rounded-xl border border-[#D6E2F5] overflow-hidden p-4 select-none flex flex-col justify-between">
+                {/* Streets Header */}
+                <div className="flex justify-between items-center text-[10px] font-mono text-slate-500 border-b border-[#D6E2F5] pb-1">
+                  <span>← Panfilov Pedestrian Street</span>
+                  <span className="font-bold text-[#0B3D91]">TOLE BI STREET (Old Square / Astana Sq)</span>
+                  <span>Abylai Khan Ave →</span>
+                </div>
+
+                {/* Central Campus Building Schema */}
+                <div className="relative flex-1 flex items-center justify-center my-2">
+                  {/* 150m Campus Geofence Boundary */}
+                  <div className="absolute w-56 h-56 rounded-full border-2 border-dashed border-[#0B3D91]/60 bg-[#E8F0FE]/40 flex items-center justify-center">
+                    <span className="text-[9px] font-extrabold text-[#0B3D91] absolute top-1 uppercase tracking-wider">
+                      150m Geofence Perimeter
+                    </span>
+                  </div>
+
+                  {/* KBTU Main Historic Building Block (Monumental Architecture) */}
+                  <div className="relative z-10 w-44 h-28 bg-white border-2 border-[#0B3D91] rounded-xl shadow-md p-2 flex flex-col justify-between">
+                    <div className="flex items-center justify-between border-b border-slate-100 pb-1">
+                      <span className="text-[9px] font-extrabold text-[#0B3D91] uppercase">KBTU Main Building</span>
+                      <span className="text-[8px] bg-blue-100 text-[#0B3D91] px-1 rounded">SITE</span>
+                    </div>
+
+                    <div className="flex items-center justify-center gap-1.5 my-auto">
+                      <div className="p-1.5 bg-[#0B3D91] text-white rounded-lg flex items-center gap-1 text-[10px] font-bold shadow-xs">
+                        <Building className="w-3.5 h-3.5" />
+                        <span>Hall 301 (Centroid)</span>
+                      </div>
+                    </div>
+
+                    <div className="flex justify-between text-[8px] text-slate-400">
+                      <span>West Wing (Labs)</span>
+                      <span>East Wing (Aud 442)</span>
+                    </div>
+                  </div>
+
+                  {/* Student Position Indicator in Schema */}
+                  <div
+                    className={`absolute z-20 transition-all duration-700 flex flex-col items-center ${
+                      simulationMode === 'INSIDE'
+                        ? 'translate-x-2 -translate-y-1'
+                        : simulationMode === 'OUTSIDE'
+                        ? 'translate-x-36 -translate-y-24'
+                        : 'translate-x-20 translate-y-16'
+                    }`}
+                  >
+                    <div
+                      className={`w-5 h-5 rounded-full flex items-center justify-center shadow-lg ring-2 ${
+                        simulationMode === 'INSIDE'
+                          ? 'bg-emerald-500 ring-emerald-200 text-white'
+                          : simulationMode === 'OUTSIDE'
+                          ? 'bg-red-500 ring-red-200 text-white'
+                          : 'bg-amber-500 ring-amber-200 text-white animate-pulse'
+                      }`}
+                    >
+                      <MapPin className="w-3 h-3" />
+                    </div>
+                    <span
+                      className={`text-[9px] font-bold px-1.5 py-0.5 rounded shadow-xs mt-0.5 whitespace-nowrap ${
+                        simulationMode === 'INSIDE'
+                          ? 'bg-emerald-600 text-white'
+                          : simulationMode === 'OUTSIDE'
+                          ? 'bg-red-600 text-white'
+                          : 'bg-amber-600 text-white'
+                      }`}
+                    >
+                      {simulationMode === 'INSIDE'
+                        ? 'Student: In Hall 301 (~5m)'
+                        : simulationMode === 'OUTSIDE'
+                        ? 'Student: Out of Campus (~850m)'
+                        : 'Indoor Drift (Weak GPS)'}
+                    </span>
+                  </div>
+                </div>
+
+                {/* Footer streets */}
+                <div className="flex justify-between items-center text-[10px] font-mono text-slate-400 border-t border-[#D6E2F5] pt-1">
+                  <span>Kazakh-British Technical University</span>
+                  <span>Centroid: 43.238949, 76.889709</span>
+                  <span>Bogenbai Batyr St ↓</span>
+                </div>
+              </div>
             ) : (
               <div className="relative w-full h-44 bg-gradient-to-b from-blue-900/5 to-blue-900/10 rounded-xl border border-[#D6E2F5] overflow-hidden flex items-center justify-center select-none">
                 {/* Outer 150m boundary circle */}
