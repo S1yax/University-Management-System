@@ -42,7 +42,7 @@ The attendance verification algorithm calculates the precise great-circle distan
 $$\Delta\sigma = 2 \arcsin \left( \sqrt{\sin^2\left(\frac{\Delta\phi}{2}\right) + \cos(\phi_1)\cos(\phi_2)\sin^2\left(\frac{\Delta\lambda}{2}\right)} \right)$$
 $$d = R \cdot \Delta\sigma$$
 
-- **Hall 301 Centroid**: `Latitude 43.238949, Longitude 76.889709` (Main Campus, Tole Bi 59)
+- **Hall 301 Centroid**: `Latitude 43.255320, Longitude 76.943094` (Main Campus, Tole Bi 59, Astana Square)
 - **Allowed Geofence Radius**: `150 meters`
 
 ### Verification Rule Engine:

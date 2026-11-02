@@ -16,7 +16,7 @@ In traditional university management systems (UMS), classroom attendance trackin
 3. **Static Optical QR Codes:** Frequently photographed and instantly broadcast via messaging channels (Telegram, WhatsApp) to students outside the university campus.
 
 ### 1.2 Proposed System Objective
-The proposed **KBTU UMS Geofence Attendance Platform** replaces paper sheets and proxy swiping with an automated, client-side cryptographic and trigonometric verification engine. By executing the spherical **Haversine formula** directly against the browser's hardware Geolocation API, the system validates physical proximity to the designated lecture hall centroid (e.g., Hall 301, Main Building, `43.238949° N, 76.889709° E`) within a strict boundary of **150 meters**, guaranteeing physical presence, zero administrative overhead, and non-repudiable audit logging.
+The proposed **KBTU UMS Geofence Attendance Platform** replaces paper sheets and proxy swiping with an automated, client-side cryptographic and trigonometric verification engine. By executing the spherical **Haversine formula** directly against the browser's hardware Geolocation API, the system validates physical proximity to the designated lecture hall centroid (e.g., Hall 301, Main Building, `43.255320° N, 76.943094° E`) within a strict boundary of **150 meters**, guaranteeing physical presence, zero administrative overhead, and non-repudiable audit logging.
 
 ```
 +---------------------------------------------------------------------------------------------------+
@@ -27,7 +27,7 @@ The proposed **KBTU UMS Geofence Attendance Platform** replaces paper sheets and
 |            |--- (1) GPS Coordinates (Lat, Lng) + Session ID                                       |
 |            v                                                                                      |
 |  [Haversine Geofence Engine]                                                                      |
-|            |--- (2) Distance Calculation to Hall 301 Centroid (43.238949, 76.889709)              |
+|            |--- (2) Distance Calculation to Hall 301 Centroid (43.255320, 76.943094)              |
 |            v                                                                                      |
 |  [Rule Verification Pipeline]                                                                     |
 |            |--- Condition A: Distance <= 150m                                                     |
@@ -97,8 +97,8 @@ $$c = 2 \cdot \operatorname{atan2}\left(\sqrt{a}, \sqrt{1 - a}\right)$$
 $$d = R \cdot c$$
 
 Where:
-* $\phi_1, \phi_2$ = latitudes in radians (Hall 301 Centroid $\phi_2 = 43.238949^\circ \times \frac{\pi}{180} \approx 0.754664\text{ rad}$)
-* $\lambda_1, \lambda_2$ = longitudes in radians (Hall 301 Centroid $\lambda_2 = 76.889709^\circ \times \frac{\pi}{180} \approx 1.341979\text{ rad}$)
+* $\phi_1, \phi_2$ = latitudes in radians (Hall 301 Centroid $\phi_2 = 43.255320^\circ \times \frac{\pi}{180} \approx 0.754949\text{ rad}$)
+* $\lambda_1, \lambda_2$ = longitudes in radians (Hall 301 Centroid $\lambda_2 = 76.943094^\circ \times \frac{\pi}{180} \approx 1.342911\text{ rad}$)
 * $R = 6,371,000\text{ meters}$ (Earth's volumetric mean radius)
 * $d$ = resulting spherical distance in meters
 

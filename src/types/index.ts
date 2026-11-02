@@ -23,8 +23,8 @@ export interface Room {
   roomNumber: string; // e.g., 'Hall 301'
   building: string;   // e.g., 'Main Building (Tole Bi 59)'
   capacity: number;   // e.g., 120
-  latitude: number;   // 43.238949
-  longitude: number;  // 76.889709
+  latitude: number;   // 43.255320
+  longitude: number;  // 76.943094
   wifiBSSID: string;  // e.g., 'KBTU-STUDENT-AP-301'
 }
 
@@ -58,8 +58,8 @@ export interface ClassSession {
   instructorId: string;
   instructorName: string;
   allowedCampusRadiusM: number; // 150
-  centerLat: number;     // 43.238949
-  centerLng: number;     // 76.889709
+  centerLat: number;     // 43.255320
+  centerLng: number;     // 76.943094
   status: 'OPEN' | 'CLOSED';
 }
 

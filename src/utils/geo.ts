@@ -1,39 +1,43 @@
 /**
  * Geolocation & Haversine distance calculations
- * Centroid for KBTU Hall 301 (Tole Bi 59, Almaty):
- * Latitude: 43.238949, Longitude: 76.889709
+ * Centroid for KBTU Main Building (Hall 301, Tole Bi 59, Astana Square, Almaty):
+ * 2GIS / Yandex Maps verified coordinates:
+ * Latitude: 43.255320 (or 43.255603)
+ * Longitude: 76.943094 (or 76.943210)
  * Campus allowed radius: 150 meters
  */
 
 export const KBTU_HALL_301_COORDS = {
-  lat: 43.238949,
-  lng: 76.889709,
-  name: 'Hall 301, Main Building, KBTU (Tole Bi 59)',
+  lat: 43.255320,
+  lng: 76.943094,
+  secondaryLat: 43.255603,
+  secondaryLng: 76.943210,
+  name: 'Hall 301, Main Building, KBTU (Tole Bi 59, Astana Square)',
   allowedRadiusM: 150,
 };
 
-// Simulation presets for easy testing
+// Simulation presets for easy testing (grounded on Tole Bi 59, Almaty)
 export const SIMULATION_PRESETS = {
   INSIDE: {
     name: 'Inside Hall 301 (Campus)',
-    lat: 43.238978,
-    lng: 76.889725,
-    accuracy: 8, // high accuracy 8 meters
-    description: 'Exact classroom seat, ~5 meters from centroid',
+    lat: 43.255345,
+    lng: 76.943110,
+    accuracy: 6, // high accuracy 6 meters
+    description: 'Inside Hall 301 / Tole Bi 59, ~3.5 meters from centroid',
   },
   OUTSIDE: {
-    name: 'Outside Campus (Dorm / City)',
-    lat: 43.245210,
-    lng: 76.896840,
-    accuracy: 12,
-    description: 'Over 850m away from KBTU campus center',
+    name: 'Outside Campus (City / Dorm)',
+    lat: 43.264200,
+    lng: 76.953500,
+    accuracy: 15,
+    description: 'Over 1.2 km away from KBTU campus center',
   },
   DRIFT: {
     name: 'Indoor GPS Drift (Weak Signal)',
-    lat: 43.240800,
-    lng: 76.893200,
+    lat: 43.258200,
+    lng: 76.946800,
     accuracy: 380, // poor accuracy
-    description: 'Multipath reflection inside thick stone walls',
+    description: 'Multipath reflection inside thick stone walls of KBTU (~440m)',
   },
 };
 
@@ -66,7 +70,7 @@ export function calculateHaversineDistance(
 }
 
 /**
- * Formats distance nicely (e.g. "14.2 m" or "1.4 km")
+ * Formats distance nicely (e.g. "4.2 m" or "1.25 km")
  */
 export function formatDistance(meters: number): string {
   if (meters < 1000) {

@@ -87,9 +87,9 @@ export const CampusMap: React.FC<CampusMapProps> = ({
       .bindPopup(
         `<div style="font-family: Inter, sans-serif; font-size: 12px; line-height: 1.4;">
           <strong style="color: #0B3D91; font-size: 13px;">KBTU Main Building (Hall 301)</strong><br/>
-          Tole Bi 59 / Panfilov, Almaty<br/>
+          Tole Bi 59 / Astana Square, Almaty<br/>
           Allowed Radius: <strong>150 meters</strong><br/>
-          Centroid: 43.238949, 76.889709
+          Coordinates: 43.255320° N, 76.943094° E
         </div>`
       );
 
