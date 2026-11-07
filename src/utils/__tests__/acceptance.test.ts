@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
-import { USERS, DEMO_PASSWORD, CLASS_SESSIONS, ENROLLMENTS } from '../../data/mockData';
-import { calculateHaversineDistance, KBTU_HALL_301_COORDS, SIMULATION_PRESETS } from '../geo';
+import * as mockData from '../../data/mockData';
+import { USERS, CLASS_SESSIONS, ENROLLMENTS } from '../../data/mockData';import { calculateHaversineDistance, KBTU_HALL_301_COORDS, SIMULATION_PRESETS } from '../geo';
 
 describe('Acceptance Criteria Checklist Verification', () => {
   describe('1. Role-based Authentication & Accounts', () => {
@@ -31,8 +31,11 @@ describe('Acceptance Criteria Checklist Verification', () => {
       expect(user?.role).toBe('ADMIN');
     });
 
-    it('validates common demo password correctly', () => {
-      expect(DEMO_PASSWORD).toBe('Demo2026!');
+    it('has no shared password and no plaintext passwords in the user data', () => {
+      expect('DEMO_PASSWORD' in mockData).toBe(false);
+      USERS.forEach((user) => {
+        expect(Object.keys(user)).not.toContain('password');
+      });
     });
   });
 

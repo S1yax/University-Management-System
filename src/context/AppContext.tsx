@@ -17,10 +17,28 @@ import {
   ENROLLMENTS,
   INITIAL_AUDIT_LOGS,
   COURSES,
-  DEMO_PASSWORD,
 } from '../data/mockData';
 import { calculateHaversineDistance, KBTU_HALL_301_COORDS } from '../utils/geo';
 import { getTranslation } from '../utils/i18n';
+import { checkPassword } from '../utils/passwordPolicy';
+import {
+  forgetThisDevice,
+  getCredential,
+  hasPassword,
+  hasRememberedDevice,
+  isPasswordReused,
+  rememberThisDevice,
+  restoreRememberedUser,
+  savePassword,
+  verifyPassword,
+} from '../utils/credentials';
+import { isPasswordExpired, semesterOf } from '../utils/passwordExpiry';
+
+interface PasswordResult {
+  success: boolean;
+  /** Human-readable reasons, shown under the form. */
+  errors: string[];
+}
 
 interface CheckInResult {
   status: 'SUCCESS_PRESENT' | 'REJECTED_RADIUS' | 'REJECTED_NOT_ENROLLED' | 'REJECTED_CLOSED' | 'ALREADY_CHECKED_IN' | 'MANUAL_REVIEW_SUBMITTED';
@@ -45,7 +63,26 @@ interface AppContextType {
   setActivePath: (path: string) => void;
 
   // Actions
-  login: (loginInput: string, passwordInput: string) => { success: boolean; errorKey?: string; locked?: boolean };
+  /** False only while a remembered device is being checked at start-up (avoids flashing the login page). */
+  authReady: boolean;
+  /** Set when the password was created in an earlier semester (students): the user must choose a new one. */
+  passwordChangeInfo: { setIn: string; current: string } | null;
+  login: (
+    loginInput: string,
+    passwordInput: string,
+    remember?: boolean
+  ) => Promise<{ success: boolean; errorKey?: string; locked?: boolean }>;
+  /** True when the account already has its own password. False = first login, the user must create one. */
+  isAccountActivated: (loginInput: string) => boolean;
+  /** First login: the user creates their own password and is signed in. */
+  activateAccount: (
+    loginInput: string,
+    newPassword: string,
+    confirmPassword: string,
+    remember?: boolean
+  ) => Promise<PasswordResult>;
+  /** Signed-in user changes the password. Needs the current one; the new one must not resemble it. */
+  changePassword: (currentPassword: string, newPassword: string, confirmPassword: string) => Promise<PasswordResult>;
   logout: () => void;
   checkInGPS: (sessionId: string, latitude: number, longitude: number, isDrift?: boolean) => CheckInResult;
   requestManualReview: (sessionId: string, reason: string) => void;
@@ -80,19 +117,24 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     localStorage.setItem(STORAGE_KEYS.LANG, lang);
   };
 
-  // Current authenticated user (default to student s_niyazkhan or null)
-  const [currentUser, setCurrentUser] = useState<User | null>(() => {
-    const saved = localStorage.getItem(STORAGE_KEYS.USER);
-    if (saved) {
-      try {
-        return JSON.parse(saved);
-      } catch {
-        return null;
-      }
+  // Signed-in user. Only the username lives in sessionStorage (gone when the tab/browser closes);
+  // the user object is always rebuilt from USERS, so a stored role can never be trusted.
+  // Staying signed in across restarts needs the explicit "keep me signed in" choice (see below).
+  const [sessionUser] = useState<User | null>(() => {
+    try {
+      const name = sessionStorage.getItem(STORAGE_KEYS.USER);
+      return (name && USERS.find((u) => u.username === name)) || null;
+    } catch {
+      return null;
     }
-    // Initial login default is null (user starts at login page)
-    return null;
   });
+  const [currentUser, setCurrentUser] = useState<User | null>(sessionUser);
+
+  // false while a remembered device is checked at start-up
+  const [authReady, setAuthReady] = useState<boolean>(() => sessionUser !== null || !hasRememberedDevice());
+
+  // Re-render trigger after a password change (the "must change" flag is derived from the stored record).
+  const [, bumpCredentials] = useState(0);
 
   // Current active navigation path
   const [activePath, setActivePath] = useState<string>('dashboard');
@@ -121,14 +163,44 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   const [failedAttempts, setFailedAttempts] = useState<number>(0);
   const [lockoutRemainingSeconds, setLockoutRemainingSeconds] = useState<number>(0);
 
-  // Sync to local storage
+  // Older versions stored the whole user (with the role) in localStorage: remove that leftover once.
   useEffect(() => {
-    if (currentUser) {
-      localStorage.setItem(STORAGE_KEYS.USER, JSON.stringify(currentUser));
-    } else {
-      localStorage.removeItem(STORAGE_KEYS.USER);
+    localStorage.removeItem(STORAGE_KEYS.USER);
+  }, []);
+
+  // Keep the tab session in sync (username only)
+  useEffect(() => {
+    try {
+      if (currentUser) sessionStorage.setItem(STORAGE_KEYS.USER, currentUser.username);
+      else sessionStorage.removeItem(STORAGE_KEYS.USER);
+    } catch {
+      // storage can be blocked: the user simply has to sign in again
     }
   }, [currentUser]);
+
+  // Auto sign-in on a device where the user ticked "keep me signed in"
+  useEffect(() => {
+    if (authReady) return;
+    let cancelled = false;
+    restoreRememberedUser().then((username) => {
+      if (cancelled) return;
+      const user = username ? USERS.find((u) => u.username === username) : undefined;
+      if (user) {
+        setCurrentUser(user);
+        addAuditLog(
+          'LOGIN_SUCCESS',
+          `User ${user.fullName} (${user.username}) signed in automatically on a remembered device.`,
+          'SUCCESS',
+          user.username
+        );
+      }
+      setAuthReady(true);
+    });
+    return () => {
+      cancelled = true;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   useEffect(() => {
     localStorage.setItem(STORAGE_KEYS.SESSIONS, JSON.stringify(classSessions));
@@ -186,7 +258,28 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   };
 
   // Authentication Flow
-  const login = (loginInput: string, passwordInput: string) => {
+  const findUser = (loginInput: string) => {
+    const trimmed = loginInput.trim().toLowerCase();
+    return users.find((u) => u.username.toLowerCase() === trimmed);
+  };
+
+  const isAccountActivated = (loginInput: string) => hasPassword(loginInput);
+
+  // Students keep one password per semester: if the password was set in an earlier semester, a new one is required.
+  const passwordChangeInfo = (() => {
+    if (!currentUser) return null;
+    const record = getCredential(currentUser.username);
+    if (!record || !isPasswordExpired(currentUser.role, record.updatedAt)) return null;
+    return { setIn: semesterOf(new Date(record.updatedAt)), current: semesterOf(new Date()) };
+  })();
+
+  /** Applies the "keep me signed in on this device" choice made on the sign-in form. */
+  const applyRememberChoice = async (username: string, remember: boolean) => {
+    if (remember) await rememberThisDevice(username);
+    else await forgetThisDevice();
+  };
+
+  const login = async (loginInput: string, passwordInput: string, remember = false) => {
     // If locked out
     if (lockoutRemainingSeconds > 0) {
       return { success: false, locked: true };
@@ -199,11 +292,13 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       return { success: false, errorKey: 'invalidCredentials' };
     }
 
-    // Match user
-    const foundUser = users.find((u) => u.username.toLowerCase() === trimmedLogin);
+    // Match user and check the password against the stored salted hash.
+    // An account without its own password can never log in here (it has to be activated first).
+    const foundUser = findUser(trimmedLogin);
+    const record = foundUser ? getCredential(foundUser.username) : undefined;
+    const passwordOk = record ? await verifyPassword(record, passwordInput) : false;
 
-    // Validate password (demo password: Demo2026!)
-    if (!foundUser || passwordInput !== DEMO_PASSWORD) {
+    if (!foundUser || !passwordOk) {
       const newAttempts = failedAttempts + 1;
       setFailedAttempts(newAttempts);
 
@@ -229,18 +324,104 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     }
 
     // Success
+    await applyRememberChoice(foundUser.username, remember);
     setFailedAttempts(0);
     setCurrentUser(foundUser);
     setActivePath('dashboard');
 
     addAuditLog(
       'LOGIN_SUCCESS',
-      `User ${foundUser.fullName} (${foundUser.username}) authenticated successfully as ${foundUser.role}.`,
+      `User ${foundUser.fullName} (${foundUser.username}) authenticated successfully as ${foundUser.role}${
+        remember ? ' (kept signed in on this device)' : ''
+      }.`,
       'SUCCESS',
       foundUser.username
     );
 
     return { success: true };
+  };
+
+  const activateAccount = async (
+    loginInput: string,
+    newPassword: string,
+    confirmPassword: string,
+    remember = false
+  ): Promise<PasswordResult> => {
+    const user = findUser(loginInput);
+    if (!user) return { success: false, errors: ['Unknown account.'] };
+    if (hasPassword(user.username)) {
+      return { success: false, errors: ['This account already has a password. Please sign in.'] };
+    }
+    if (newPassword !== confirmPassword) {
+      return { success: false, errors: ['The two passwords do not match.'] };
+    }
+    const check = checkPassword(newPassword, user);
+    if (!check.ok) return { success: false, errors: check.errors };
+
+    await savePassword(user.username, newPassword);
+    addAuditLog(
+      'PASSWORD_SET',
+      `${user.fullName} (${user.username}) created their own password at first login.`,
+      'SUCCESS',
+      user.username
+    );
+
+    await applyRememberChoice(user.username, remember);
+    setFailedAttempts(0);
+    setCurrentUser(user);
+    setActivePath('dashboard');
+    addAuditLog(
+      'LOGIN_SUCCESS',
+      `User ${user.fullName} (${user.username}) authenticated successfully as ${user.role}.`,
+      'SUCCESS',
+      user.username
+    );
+    return { success: true, errors: [] };
+  };
+
+  const changePassword = async (
+    currentPassword: string,
+    newPassword: string,
+    confirmPassword: string
+  ): Promise<PasswordResult> => {
+    if (!currentUser) return { success: false, errors: ['You must be signed in.'] };
+    const record = getCredential(currentUser.username);
+    if (!record) return { success: false, errors: ['This account has no password yet.'] };
+
+    if (!(await verifyPassword(record, currentPassword))) {
+      addAuditLog(
+        'PASSWORD_CHANGE_FAILED',
+        `Password change refused for ${currentUser.username}: current password was incorrect.`,
+        'WARNING'
+      );
+      return { success: false, errors: ['The current password is incorrect.'] };
+    }
+    if (newPassword !== confirmPassword) {
+      return { success: false, errors: ['The two new passwords do not match.'] };
+    }
+
+    const check = checkPassword(newPassword, { ...currentUser, previousPassword: currentPassword });
+    if (!check.ok) return { success: false, errors: check.errors };
+
+    if (await isPasswordReused(record, newPassword)) {
+      return { success: false, errors: ['This password was already used. Choose one you have not used recently.'] };
+    }
+
+    // Saving a new password revokes every "keep me signed in" token. This device keeps its own choice.
+    const keepThisDevice = hasRememberedDevice();
+    const semesterRenewal = passwordChangeInfo !== null;
+    await savePassword(currentUser.username, newPassword);
+    if (keepThisDevice) await rememberThisDevice(currentUser.username);
+    bumpCredentials((n) => n + 1);
+
+    addAuditLog(
+      'PASSWORD_CHANGED',
+      `${currentUser.fullName} (${currentUser.username}) changed their password${
+        semesterRenewal ? ` (required new-semester change, ${passwordChangeInfo?.current})` : ''
+      }. Other devices were signed out of "keep me signed in".`,
+      'SUCCESS'
+    );
+    return { success: true, errors: [] };
   };
 
   const logout = () => {
@@ -252,6 +433,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         currentUser.username
       );
     }
+    void forgetThisDevice(); // signing out switches auto sign-in off on this device
     setCurrentUser(null);
     setActivePath('dashboard');
   };
@@ -570,7 +752,12 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         lockoutRemainingSeconds,
         activePath,
         setActivePath,
+        authReady,
+        passwordChangeInfo,
         login,
+        isAccountActivated,
+        activateAccount,
+        changePassword,
         logout,
         checkInGPS,
         requestManualReview,

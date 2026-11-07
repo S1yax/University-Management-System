@@ -1,6 +1,6 @@
 import { User, Room, Course, ClassSession, Enrollment, AttendanceRecord, AuditLogEntry, NewsItem, MessageItem } from '../types';
 
-export const DEMO_PASSWORD = 'Demo2026!';
+
 
 export const USERS: User[] = [
   {

@@ -15,6 +15,7 @@ import { DatabaseErdPage } from './components/project/DatabaseErdPage';
 import { Team39Page } from './components/project/Team39Page';
 import { ProjectStatusPage } from './components/project/ProjectStatusPage';
 import { AccessDeniedPage } from './components/common/AccessDeniedPage';
+import { ChangePasswordPage } from './components/auth/ChangePasswordPage';
 import {
   MyCoursesPage,
   SchedulePage,
@@ -39,12 +40,25 @@ import {
 import { UserRole } from './types';
 
 export const App: React.FC = () => {
-  const { currentUser, activePath, setActivePath, t } = useApp();
-  const [isMobileSidebarOpen, setIsMobileSidebarOpen] = useState(false);
+  const { currentUser, activePath, setActivePath, t, authReady, passwordChangeInfo } = useApp();  const [isMobileSidebarOpen, setIsMobileSidebarOpen] = useState(false);
 
   // If not logged in, show University Portal Login
   if (!currentUser) {
     return <LoginPage />;
+  }
+
+  // If not logged in, show University Portal Login
+  if (!currentUser) {
+    return <LoginPage />;
+  }
+
+  // Students must choose a new password in every semester: nothing else opens until they do
+  if (passwordChangeInfo) {
+    return (
+      <div className="min-h-screen bg-[#F5F8FD] p-4 sm:p-8 text-[#0F1F3D]">
+        <ChangePasswordPage forced />
+      </div>
+    );
   }
 
   // Allowed paths mapping per role

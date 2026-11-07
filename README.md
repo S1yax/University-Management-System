@@ -13,7 +13,13 @@ The KBTU UMS is a production-grade institutional academic portal featuring role-
 
 ## 👥 Demo Accounts (Dev Reference)
 
-> **Note on Security**: Following institutional security policy and system requirements, **passwords are NOT displayed in this documentation or anywhere in the UI**. All demo accounts share a preconfigured demo credential configured in the runtime mock system (`Demo2026!`).
+> **Note on Security**: There is **no shared demo password anymore** and no password is written in the code, the UI or this file. The first time a demo account signs in, its owner creates their own password.
+>
+> - **Rules:** 8–20 characters, at least one letter and one digit; must not contain the name, student ID or corporate e-mail login (first letter of the name + `_` + surname, e.g. `a_bagdat`); no common passwords (`password`, `qwerty`, `12345`, …) and no runs like `aaaa` or `1234`.
+> - **Change:** the new password must not be similar to the current one and must not match any of the last 3 passwords.
+> - **Students** must set a new password every semester (Fall = Aug–Dec, Spring = Jan–Jul); after the semester changes a "Password change required" screen opens before anything else.
+> - **Keep me signed in on this device:** with this checkbox ticked, only that browser signs in automatically (for up to 30 days). Signing out or changing the password turns it off.
+> - **Storage (demo only):** only a salted PBKDF2-SHA256 hash is stored, in the browser's `localStorage`. This is not real protection; a backend is needed for production. To reset all demo passwords, clear the site data for `localhost:5173`.
 
 ### 🎓 Students
 - `s_niyazkhan` — **Saniya Niyazkhan** (Student ID: `24B031926`, Major: Information Systems, Year 2, GPA: 3.92)

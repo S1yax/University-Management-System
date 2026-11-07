@@ -26,6 +26,7 @@ export const AuditLogPage: React.FC = () => {
     { label: 'Manual Overrides', value: 'MANUAL_OVERRIDE' },
     { label: 'Login Success', value: 'LOGIN_SUCCESS' },
     { label: 'Login Failures / Lockouts', value: 'LOGIN_FAILURE' },
+    { label: 'Password Events', value: 'PASSWORD' },
     { label: 'Early Warnings', value: 'EARLY_WARNING_SENT' },
     { label: 'Manual Review Requests', value: 'MANUAL_REVIEW_REQUEST' },
   ];
@@ -42,6 +43,8 @@ export const AuditLogPage: React.FC = () => {
         ? true
         : actionFilter === 'LOGIN_FAILURE'
         ? entry.action === 'LOGIN_FAILURE' || entry.action === 'ACCOUNT_LOCKED'
+        : actionFilter === 'PASSWORD'
+        ? entry.action.startsWith('PASSWORD_')
         : entry.action === actionFilter;
 
     return matchesSearch && matchesAction;
