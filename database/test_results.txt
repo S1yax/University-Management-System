@@ -1,0 +1,8 @@
+NOTICE:  TEST 1 PASS: a valid check-in is saved
+NOTICE:  TEST 2 PASS: duplicate check-in rejected (uq_session_student)
+NOTICE:  TEST 3 PASS: unknown student rejected (foreign key)
+NOTICE:  TEST 4 PASS: wrong status rejected (CHECK)
+NOTICE:  TEST 5 PASS: duplicate registration rejected (uq_student_course_semester)
+NOTICE:  TEST 6 PASS: override without a reason rejected
+NOTICE:  TEST 7 PASS: attendance of Mubarak in BIS201 = 57.1 (same as website)
+NOTICE:  TEST 8 PASS: 5 check-ins deleted together with the lesson (CASCADE)
