@@ -34,6 +34,25 @@ import {
 } from '../utils/credentials';
 import { isPasswordExpired, semesterOf } from '../utils/passwordExpiry';
 
+export type TimeSimulationMode =
+  | 'DURING_LESSON'
+  | 'DURING_LESSON_H1'
+  | 'DURING_LESSON_H2'
+  | 'DURING_LESSON_H3'
+  | 'BEFORE_LESSON'
+  | 'AFTER_LESSON'
+  | 'REAL_TIME';
+
+export interface LessonTimeCheck {
+  active: boolean;
+  currentDay: string;
+  currentTime: string;
+  scheduledDay: string;
+  scheduledTime: string;
+  currentHourSlot?: 1 | 2 | 3;
+  reason?: string;
+}
+
 interface PasswordResult {
   success: boolean;
   /** Human-readable reasons, shown under the form. */
@@ -84,15 +103,18 @@ interface AppContextType {
   /** Signed-in user changes the password. Needs the current one; the new one must not resemble it. */
   changePassword: (currentPassword: string, newPassword: string, confirmPassword: string) => Promise<PasswordResult>;
   logout: () => void;
-  checkInGPS: (sessionId: string, latitude: number, longitude: number, isDrift?: boolean) => CheckInResult;
+  checkInGPS: (sessionId: string, latitude: number, longitude: number, isDrift?: boolean, hourSlot?: 1 | 2 | 3) => CheckInResult;
   requestManualReview: (sessionId: string, reason: string) => void;
   toggleSessionStatus: (sessionId: string) => void;
   overrideAttendance: (recordId: string, newStatus: VerificationStatus, reason: string) => void;
-  createManualAttendance: (sessionId: string, studentId: string, status: VerificationStatus, reason: string) => void;
+  createManualAttendance: (sessionId: string, studentId: string, status: VerificationStatus, reason: string, hourSlot?: 1 | 2 | 3) => void;
   sendEarlyWarningNotice: (studentId: string, courseCode: string) => { success: boolean; message: string };
   addAuditLog: (action: AuditActionType, details: string, status: 'SUCCESS' | 'WARNING' | 'ERROR', username?: string) => void;
   t: (key: any, params?: Record<string, string | number>) => string;
   getStudentAttendanceRate: (studentId: string, courseCode: string) => { attended: number; total: number; percentage: number; isAtRisk: boolean };
+  timeSimulationMode: TimeSimulationMode;
+  setTimeSimulationMode: (mode: TimeSimulationMode) => void;
+  checkSessionTime: (sessionId: string) => LessonTimeCheck;
 }
 
 const AppContext = createContext<AppContextType | undefined>(undefined);
@@ -148,6 +170,75 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     const saved = localStorage.getItem(STORAGE_KEYS.SESSIONS);
     return saved ? JSON.parse(saved) : CLASS_SESSIONS;
   });
+
+  const [timeSimulationMode, setTimeSimulationMode] = useState<TimeSimulationMode>('DURING_LESSON');
+
+  const checkSessionTime = (sessionId: string): LessonTimeCheck => {
+    const session = classSessions.find((s) => s.id === sessionId);
+    const scheduledDay = session?.dayOfWeek || 'Monday';
+    const scheduledTime = session ? `${session.startTime} – ${session.endTime}` : '16:00 – 19:00';
+
+    let currentDay = 'Monday';
+    let currentTime = '16:30';
+
+    if (timeSimulationMode === 'DURING_LESSON' || timeSimulationMode === 'DURING_LESSON_H1') {
+      currentDay = scheduledDay;
+      currentTime = '16:25';
+    } else if (timeSimulationMode === 'DURING_LESSON_H2') {
+      currentDay = scheduledDay;
+      currentTime = '17:25';
+    } else if (timeSimulationMode === 'DURING_LESSON_H3') {
+      currentDay = scheduledDay;
+      currentTime = '18:25';
+    } else if (timeSimulationMode === 'BEFORE_LESSON') {
+      currentDay = scheduledDay;
+      currentTime = '15:15';
+    } else if (timeSimulationMode === 'AFTER_LESSON') {
+      currentDay = scheduledDay;
+      currentTime = '19:45';
+    } else if (timeSimulationMode === 'REAL_TIME') {
+      const now = new Date();
+      const days = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
+      currentDay = days[now.getDay()];
+      const hours = now.getHours().toString().padStart(2, '0');
+      const minutes = now.getMinutes().toString().padStart(2, '0');
+      currentTime = `${hours}:${minutes}`;
+    }
+
+    const isDayMatch = currentDay.toLowerCase() === scheduledDay.toLowerCase();
+    const startTime = session?.startTime || '16:00';
+    const endTime = session?.endTime || '19:00';
+    const isTimeMatch = currentTime >= startTime && currentTime <= endTime;
+    const active = isDayMatch && isTimeMatch;
+
+    let currentHourSlot: 1 | 2 | 3 | undefined = undefined;
+    if (active) {
+      if (currentTime < '17:00') currentHourSlot = 1;
+      else if (currentTime < '18:00') currentHourSlot = 2;
+      else currentHourSlot = 3;
+    }
+
+    let reason: string | undefined = undefined;
+    if (!active) {
+      if (!isDayMatch) {
+        reason = `Занятие проводится только в ${scheduledDay}. Текущий день: ${currentDay}.`;
+      } else if (currentTime < startTime) {
+        reason = `Занятие еще не началось (начало в ${startTime}). Текущее время: ${currentTime}.`;
+      } else {
+        reason = `Занятие завершено (проводилось до ${endTime}). Текущее время: ${currentTime}.`;
+      }
+    }
+
+    return {
+      active,
+      currentDay,
+      currentTime,
+      scheduledDay,
+      scheduledTime,
+      currentHourSlot,
+      reason,
+    };
+  };
 
   const [attendanceRecords, setAttendanceRecords] = useState<AttendanceRecord[]>(() => {
     const saved = localStorage.getItem(STORAGE_KEYS.ATTENDANCE);
@@ -438,20 +529,31 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     setActivePath('dashboard');
   };
 
-  // Student Attendance Calculations
+  // Student Attendance Calculations (including hourly marks for 3-hour sessions)
   const getStudentAttendanceRate = (studentId: string, courseCode: string) => {
-    // Total sessions up to active session (sessions 1 to 8)
     const passedSessions = classSessions.filter((s) => s.courseCode === courseCode && s.sessionNumber <= 8);
-    const total = passedSessions.length || 1;
+    let totalPoints = 0;
+    let attendedPoints = 0;
 
-    // Attended sessions with status PRESENT
-    const attended = attendanceRecords.filter(
-      (r) =>
-        r.studentId === studentId &&
-        r.courseCode === courseCode &&
-        r.verificationStatus === 'PRESENT'
-    ).length;
+    for (const session of passedSessions) {
+      const is3HourSession = session.startTime === '16:00' && session.endTime === '19:00';
+      if (is3HourSession && session.sessionNumber === 8) {
+        totalPoints += 3;
+        const attendedHours = attendanceRecords.filter(
+          (r) => r.sessionId === session.id && r.studentId === studentId && r.verificationStatus === 'PRESENT'
+        ).length;
+        attendedPoints += Math.min(3, attendedHours);
+      } else {
+        totalPoints += 1;
+        const attended = attendanceRecords.some(
+          (r) => r.sessionId === session.id && r.studentId === studentId && r.verificationStatus === 'PRESENT'
+        );
+        if (attended) attendedPoints += 1;
+      }
+    }
 
+    const total = totalPoints || 1;
+    const attended = attendedPoints;
     const percentage = Math.round((attended / total) * 100);
     const isAtRisk = percentage < 80;
 
@@ -463,7 +565,8 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     sessionId: string,
     latitude: number,
     longitude: number,
-    isDrift: boolean = false
+    isDrift: boolean = false,
+    hourSlot?: 1 | 2 | 3
   ): CheckInResult => {
     if (!currentUser) {
       return { status: 'REJECTED_NOT_ENROLLED', message: 'User not logged in' };
@@ -473,6 +576,22 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     if (!session) {
       return { status: 'REJECTED_CLOSED', message: 'Class session not found.' };
     }
+
+    // 0. Lesson Time Window Check (e.g. Monday/Tuesday 16:00 - 19:00)
+    const timeCheck = checkSessionTime(session.id);
+    if (!timeCheck.active) {
+      addAuditLog(
+        'CHECK_IN_REJECTED',
+        `Check-in rejected for ${currentUser.username} in ${session.courseCode}: outside scheduled lesson hours (${timeCheck.currentDay} ${timeCheck.currentTime}, scheduled: ${timeCheck.scheduledDay} ${timeCheck.scheduledTime}).`,
+        'ERROR'
+      );
+      return {
+        status: 'REJECTED_CLOSED',
+        message: `Отметка посещаемости доступна ТОЛЬКО во время урока (${timeCheck.scheduledDay} ${timeCheck.scheduledTime}). ${timeCheck.reason || ''}`,
+      };
+    }
+
+    const targetHourSlot: 1 | 2 | 3 = hourSlot || timeCheck.currentHourSlot || 1;
 
     // 1. Session Status Check
     if (session.status !== 'OPEN') {
@@ -503,14 +622,14 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       };
     }
 
-    // 3. Duplicate Check: Unique rule on (session_id, student_id)
+    // 3. Duplicate Check: Unique rule on (session_id, student_id, hourSlot)
     const existingRecord = attendanceRecords.find(
-      (r) => r.sessionId === sessionId && r.studentId === currentUser.id
+      (r) => r.sessionId === sessionId && r.studentId === currentUser.id && (r.hourSlot || 1) === targetHourSlot
     );
     if (existingRecord) {
       return {
         status: 'ALREADY_CHECKED_IN',
-        message: `You have already checked in for this session (${existingRecord.verificationStatus} at ${existingRecord.checkInTime}).`,
+        message: `Вы уже отметились за Час ${targetHourSlot} (${existingRecord.verificationStatus} в ${existingRecord.checkInTime.substring(11, 19)}).`,
         record: existingRecord,
       };
     }
@@ -540,21 +659,22 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         gpsLatitude: latitude,
         gpsLongitude: longitude,
         distanceToCenterM: distanceM,
+        hourSlot: targetHourSlot,
         verificationStatus: 'MANUAL_REVIEW',
         rejectionReason: 'Indoor GPS drift detected (accuracy degraded inside thick masonry)',
-        manualReviewNote: 'Student in Hall 301. Signal drift requested manual review.',
+        manualReviewNote: `Student in ${session.roomName}. Signal drift requested manual review for Hour ${targetHourSlot}.`,
       };
 
       setAttendanceRecords((prev) => [driftRecord, ...prev]);
       addAuditLog(
         'MANUAL_REVIEW_REQUEST',
-        `Weak GPS signal for ${currentUser.fullName} (${currentUser.username}). Requested manual review in ${session.courseCode} Hall 301.`,
+        `Weak GPS signal for ${currentUser.fullName} (${currentUser.username}). Requested manual review in ${session.courseCode} ${session.roomName} (Час ${targetHourSlot}).`,
         'WARNING'
       );
 
       return {
         status: 'MANUAL_REVIEW_SUBMITTED',
-        message: 'Weak GPS signal — Wi-Fi verification (coming in Week 10). Manual review request sent to teacher.',
+        message: `Слабый GPS-сигнал — запрос на ручную проверку за Час ${targetHourSlot} отправлен преподавателю.`,
         distanceM,
         record: driftRecord,
       };
@@ -574,19 +694,20 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         gpsLatitude: latitude,
         gpsLongitude: longitude,
         distanceToCenterM: distanceM,
+        hourSlot: targetHourSlot,
         verificationStatus: 'PRESENT',
       };
 
       setAttendanceRecords((prev) => [presentRecord, ...prev]);
       addAuditLog(
         'GPS_CHECK_IN',
-        `Verified GPS check-in for ${currentUser.fullName} in ${session.courseCode} ${session.roomName}. Distance: ${distanceM}m (Allowed: ${session.allowedCampusRadiusM}m). Status: PRESENT`,
+        `Verified GPS check-in for ${currentUser.fullName} in ${session.courseCode} ${session.roomName} (Час ${targetHourSlot}). Distance: ${distanceM}m (Allowed: ${session.allowedCampusRadiusM}m). Status: PRESENT`,
         'SUCCESS'
       );
 
       return {
         status: 'SUCCESS_PRESENT',
-        message: `Attendance confirmed! You are verified inside ${session.roomName}.`,
+        message: `Посещаемость за Час ${targetHourSlot} подтверждена! Вы верифицированы внутри ${session.roomName}.`,
         distanceM,
         record: presentRecord,
       };
@@ -604,6 +725,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         gpsLatitude: latitude,
         gpsLongitude: longitude,
         distanceToCenterM: distanceM,
+        hourSlot: targetHourSlot,
         verificationStatus: 'REJECTED',
         rejectionReason: `Distance ${distanceM}m exceeded campus radius limit (${session.allowedCampusRadiusM}m).`,
       };
@@ -611,13 +733,13 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       setAttendanceRecords((prev) => [rejectedRecord, ...prev]);
       addAuditLog(
         'CHECK_IN_REJECTED',
-        `GPS check-in REJECTED for ${currentUser.fullName} in ${session.courseCode}: distance ${distanceM}m > allowed ${session.allowedCampusRadiusM}m.`,
+        `GPS check-in REJECTED for ${currentUser.fullName} in ${session.courseCode} (Час ${targetHourSlot}): distance ${distanceM}m > allowed ${session.allowedCampusRadiusM}m.`,
         'ERROR'
       );
 
       return {
         status: 'REJECTED_RADIUS',
-        message: `Distance ${distanceM} m is outside the allowed campus radius of ${session.allowedCampusRadiusM} m. Check-in rejected.`,
+        message: `Дистанция ${distanceM} м находится вне допустимого радиуса кампуса (${session.allowedCampusRadiusM} м). Отметка за Час ${targetHourSlot} отклонена.`,
         distanceM,
         record: rejectedRecord,
       };
@@ -661,6 +783,19 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     newStatus: VerificationStatus,
     reason: string
   ) => {
+    const record = attendanceRecords.find((r) => r.id === recordId);
+    if (record) {
+      const timeCheck = checkSessionTime(record.sessionId);
+      if (!timeCheck.active) {
+        addAuditLog(
+          'MANUAL_OVERRIDE',
+          `Teacher override rejected for ${record.studentName}: Outside scheduled lesson hours (${timeCheck.currentDay} ${timeCheck.currentTime}, scheduled: ${timeCheck.scheduledDay} ${timeCheck.scheduledTime}).`,
+          'ERROR'
+        );
+        return;
+      }
+    }
+
     setAttendanceRecords((prev) =>
       prev.map((r) => {
         if (r.id === recordId) {
@@ -687,11 +822,22 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     sessionId: string,
     studentId: string,
     status: VerificationStatus,
-    reason: string
+    reason: string,
+    hourSlot: 1 | 2 | 3 = 1
   ) => {
     const student = users.find((u) => u.id === studentId);
     const session = classSessions.find((s) => s.id === sessionId);
     if (!student || !session) return;
+
+    const timeCheck = checkSessionTime(sessionId);
+    if (!timeCheck.active) {
+      addAuditLog(
+        'CHECK_IN_REJECTED',
+        `Teacher manual attendance entry rejected: Outside scheduled lesson hours (${timeCheck.currentDay} ${timeCheck.currentTime}, scheduled: ${timeCheck.scheduledDay} ${timeCheck.scheduledTime}).`,
+        'ERROR'
+      );
+      return;
+    }
 
     const now = new Date().toISOString().replace('T', ' ').substring(0, 19);
     const newRecord: AttendanceRecord = {
@@ -706,6 +852,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       gpsLatitude: session.centerLat,
       gpsLongitude: session.centerLng,
       distanceToCenterM: 0,
+      hourSlot,
       verificationStatus: status,
       isOverride: true,
       overrideBy: currentUser?.fullName || 'Ainur Issabek',
@@ -715,7 +862,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     setAttendanceRecords((prev) => [newRecord, ...prev]);
     addAuditLog(
       'MANUAL_OVERRIDE',
-      `Manual attendance entry added for ${student.fullName} in ${session.courseCode} Session #${session.sessionNumber}: Set to ${status}. Reason: "${reason}" (by ${currentUser?.fullName})`,
+      `Manual attendance entry added for ${student.fullName} in ${session.courseCode} Session #${session.sessionNumber} (Час ${hourSlot}): Set to ${status}. Reason: "${reason}" (by ${currentUser?.fullName})`,
       'WARNING'
     );
   };
@@ -768,6 +915,9 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         addAuditLog,
         t,
         getStudentAttendanceRate,
+        timeSimulationMode,
+        setTimeSimulationMode,
+        checkSessionTime,
       }}
     >
       {children}

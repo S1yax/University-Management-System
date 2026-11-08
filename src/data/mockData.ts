@@ -74,6 +74,76 @@ export const USERS: User[] = [
     phone: '+7 708 111 1787',
   },
   {
+    id: 'u-11',
+    username: 's_tleubay',
+    fullName: 'Dias Tleubay',
+    role: 'STUDENT',
+    email: 'd.tleubay@kbtu.kz',
+    studentId: '24B031122',
+    major: 'Information Systems',
+    year: 2,
+    gpa: 3.42,
+    creditsEnrolled: 18,
+    department: 'School of Information Technology and Engineering',
+    phone: '+7 701 555 1122',
+  },
+  {
+    id: 'u-12',
+    username: 's_kanat',
+    fullName: 'Aigerim Kanat',
+    role: 'STUDENT',
+    email: 'a.kanat@kbtu.kz',
+    studentId: '24B031405',
+    major: 'Information Systems',
+    year: 2,
+    gpa: 3.78,
+    creditsEnrolled: 21,
+    department: 'School of Information Technology and Engineering',
+    phone: '+7 702 777 1405',
+  },
+  {
+    id: 'u-13',
+    username: 's_serik',
+    fullName: 'Daniyar Serik',
+    role: 'STUDENT',
+    email: 'd.serik@kbtu.kz',
+    studentId: '25B032011',
+    major: 'Computer Science',
+    year: 1,
+    gpa: 3.82,
+    creditsEnrolled: 20,
+    department: 'School of Information Technology and Engineering',
+    phone: '+7 705 888 2011',
+  },
+  {
+    id: 'u-14',
+    username: 's_bazarbay',
+    fullName: 'Madina Bazarbay',
+    role: 'STUDENT',
+    email: 'm.bazarbay@kbtu.kz',
+    studentId: '24B031980',
+    major: 'Information Systems',
+    year: 2,
+    gpa: 3.91,
+    creditsEnrolled: 19,
+    department: 'School of Information Technology and Engineering',
+    phone: '+7 707 999 1980',
+  },
+  {
+    id: 'u-15',
+    username: 's_omar',
+    fullName: 'Alikhan Omar',
+    role: 'STUDENT',
+    email: 'a.omar@kbtu.kz',
+    studentId: '25B032777',
+    major: 'Computer Science',
+    year: 1,
+    gpa: 3.55,
+    creditsEnrolled: 18,
+    department: 'School of Information Technology and Engineering',
+    phone: '+7 708 333 2777',
+  },
+  {
     id: 'u-6',
     username: 't_issabek',
     fullName: 'Ainur Issabek',
@@ -183,18 +253,18 @@ export const COURSES: Course[] = [
   },
   {
     id: 'c-3',
-    code: 'DB202',
-    title: 'Database Systems & SQL',
+    code: 'IS202',
+    title: 'Enterprise Databases & SQL Systems',
     credits: 4,
     department: 'Information Systems',
-    instructorId: 'u-8',
-    instructorName: 'Miras Asubay',
+    instructorId: 'u-6',
+    instructorName: 'Ainur Issabek',
     semester: 'Fall 2026',
     maxCapacity: 35,
-    enrolledCount: 32,
+    enrolledCount: 30,
     description: 'Relational data modeling, 3NF normalization, PostgreSQL, transactions, and indexing strategies.',
     room: 'Computer Lab 204',
-    schedule: 'Tue 14:00 – 17:00',
+    schedule: 'Tue 16:00 – 19:00',
   },
   {
     id: 'c-4',
@@ -501,6 +571,44 @@ export const CLASS_SESSIONS: ClassSession[] = [
     centerLng: 76.943094,
     status: 'CLOSED',
   },
+
+  // Tuesday Sessions for Ainur Issabek (IS202, Tue 16:00 - 19:00, Computer Lab 204)
+  {
+    id: 'ses-is202-7',
+    courseCode: 'IS202',
+    sessionNumber: 7,
+    title: 'W7: Relational Normalization & SQL Triggers',
+    date: '2026-10-20',
+    dayOfWeek: 'Tuesday',
+    startTime: '16:00',
+    endTime: '19:00',
+    roomId: 'room-204',
+    roomName: 'Computer Lab 204',
+    instructorId: 'u-6',
+    instructorName: 'Ainur Issabek',
+    allowedCampusRadiusM: 150,
+    centerLat: 43.255320,
+    centerLng: 76.943094,
+    status: 'CLOSED',
+  },
+  {
+    id: 'ses-is202-8',
+    courseCode: 'IS202',
+    sessionNumber: 8,
+    title: 'W8: PostgreSQL Transactions, ACID & Query Optimization',
+    date: '2026-11-03',
+    dayOfWeek: 'Tuesday',
+    startTime: '16:00',
+    endTime: '19:00',
+    roomId: 'room-204',
+    roomName: 'Computer Lab 204',
+    instructorId: 'u-6',
+    instructorName: 'Ainur Issabek',
+    allowedCampusRadiusM: 150,
+    centerLat: 43.255320,
+    centerLng: 76.943094,
+    status: 'OPEN',
+  },
 ];
 
 export const ENROLLMENTS: Enrollment[] = [
@@ -529,6 +637,26 @@ export const ENROLLMENTS: Enrollment[] = [
   // Amir Zholdassali (u-5)
   { id: 'en-15', studentId: 'u-5', studentName: 'Amir Zholdassali', courseCode: 'BIS201', semester: 'Fall 2026', status: 'Approved', grade: 'C+', score: 74, credits: 3 },
   { id: 'en-16', studentId: 'u-5', studentName: 'Amir Zholdassali', courseCode: 'CS101', semester: 'Fall 2026', status: 'Approved', grade: 'B', score: 80, credits: 3 },
+
+  // Dias Tleubay (u-11) - enrolled in both BIS201 and IS202
+  { id: 'en-17', studentId: 'u-11', studentName: 'Dias Tleubay', courseCode: 'BIS201', semester: 'Fall 2026', status: 'Approved', grade: 'B+', score: 88, credits: 3 },
+  { id: 'en-18', studentId: 'u-11', studentName: 'Dias Tleubay', courseCode: 'IS202', semester: 'Fall 2026', status: 'Approved', grade: 'B', score: 81, credits: 4 },
+
+  // Aigerim Kanat (u-12) - enrolled in BIS201
+  { id: 'en-19', studentId: 'u-12', studentName: 'Aigerim Kanat', courseCode: 'BIS201', semester: 'Fall 2026', status: 'Approved', grade: 'A', score: 94, credits: 3 },
+
+  // Daniyar Serik (u-13) - enrolled in IS202 (Tuesday)
+  { id: 'en-20', studentId: 'u-13', studentName: 'Daniyar Serik', courseCode: 'IS202', semester: 'Fall 2026', status: 'Approved', grade: 'A', score: 95, credits: 4 },
+
+  // Madina Bazarbay (u-14) - enrolled in IS202 (Tuesday)
+  { id: 'en-21', studentId: 'u-14', studentName: 'Madina Bazarbay', courseCode: 'IS202', semester: 'Fall 2026', status: 'Approved', grade: 'A', score: 96, credits: 4 },
+
+  // Alikhan Omar (u-15) - enrolled in IS202 (Tuesday)
+  { id: 'en-22', studentId: 'u-15', studentName: 'Alikhan Omar', courseCode: 'IS202', semester: 'Fall 2026', status: 'Approved', grade: 'B+', score: 85, credits: 4 },
+
+  // Yugai Elya & Bagdat Alua also taking IS202
+  { id: 'en-23', studentId: 'u-3', studentName: 'Yugai Elya', courseCode: 'IS202', semester: 'Fall 2026', status: 'Approved', grade: 'A', score: 93, credits: 4 },
+  { id: 'en-24', studentId: 'u-4', studentName: 'Bagdat Alua', courseCode: 'IS202', semester: 'Fall 2026', status: 'Approved', grade: 'A-', score: 89, credits: 4 },
 ];
 
 // Seed ~42 realistic attendance records across sessions 1-7 with PRESENT and REJECTED
@@ -582,9 +710,29 @@ export const INITIAL_ATTENDANCE_RECORDS: AttendanceRecord[] = [
   { id: 'att-704', sessionId: 'ses-7', courseCode: 'BIS201', sessionTitle: 'W7: Business Intelligence', sessionNumber: 7, studentId: 'u-4', studentName: 'Bagdat Alua', checkInTime: '2026-10-19 16:05:10', gpsLatitude: 43.255345, gpsLongitude: 76.943115, distanceToCenterM: 4.5, verificationStatus: 'PRESENT' },
   { id: 'att-705', sessionId: 'ses-7', courseCode: 'BIS201', sessionTitle: 'W7: Business Intelligence', sessionNumber: 7, studentId: 'u-5', studentName: 'Amir Zholdassali', checkInTime: '2026-10-19 16:35:10', gpsLatitude: 43.264000, gpsLongitude: 76.953500, distanceToCenterM: 980.0, verificationStatus: 'REJECTED', rejectionReason: 'Distance 980m exceeded allowed radius 150m' },
 
-  // Week 8 (ses-8) Initial partial check-ins (28 of 36 checked in)
-  { id: 'att-803', sessionId: 'ses-8', courseCode: 'BIS201', sessionTitle: 'W8: IS Security & GPS UMS', sessionNumber: 8, studentId: 'u-3', studentName: 'Yugai Elya', checkInTime: '2026-11-02 16:02:15', gpsLatitude: 43.255322, gpsLongitude: 76.943095, distanceToCenterM: 1.8, verificationStatus: 'PRESENT' },
-  { id: 'att-804', sessionId: 'ses-8', courseCode: 'BIS201', sessionTitle: 'W8: IS Security & GPS UMS', sessionNumber: 8, studentId: 'u-4', studentName: 'Bagdat Alua', checkInTime: '2026-11-02 16:05:45', gpsLatitude: 43.255335, gpsLongitude: 76.943108, distanceToCenterM: 3.9, verificationStatus: 'PRESENT' },
+  // Week 8 (ses-8) Monday Check-ins (BIS201, Mon 16:00 - 19:00, 3 hours)
+  // Hour 1 (16:00 - 17:00)
+  { id: 'att-801', sessionId: 'ses-8', courseCode: 'BIS201', sessionTitle: 'W8: IS Security & GPS UMS', sessionNumber: 8, studentId: 'u-1', studentName: 'Saniya Niyazkhan', checkInTime: '2026-11-02 16:04:10', gpsLatitude: 43.255325, gpsLongitude: 76.943096, distanceToCenterM: 3.1, verificationStatus: 'PRESENT', hourSlot: 1 },
+  { id: 'att-802', sessionId: 'ses-8', courseCode: 'BIS201', sessionTitle: 'W8: IS Security & GPS UMS', sessionNumber: 8, studentId: 'u-2', studentName: 'Mubarak Nurlybay', checkInTime: '2026-11-02 16:12:30', gpsLatitude: 43.255380, gpsLongitude: 76.943140, distanceToCenterM: 11.4, verificationStatus: 'PRESENT', hourSlot: 1 },
+  { id: 'att-803', sessionId: 'ses-8', courseCode: 'BIS201', sessionTitle: 'W8: IS Security & GPS UMS', sessionNumber: 8, studentId: 'u-3', studentName: 'Yugai Elya', checkInTime: '2026-11-02 16:01:25', gpsLatitude: 43.255322, gpsLongitude: 76.943095, distanceToCenterM: 1.8, verificationStatus: 'PRESENT', hourSlot: 1 },
+  { id: 'att-804', sessionId: 'ses-8', courseCode: 'BIS201', sessionTitle: 'W8: IS Security & GPS UMS', sessionNumber: 8, studentId: 'u-4', studentName: 'Bagdat Alua', checkInTime: '2026-11-02 16:05:45', gpsLatitude: 43.255335, gpsLongitude: 76.943108, distanceToCenterM: 3.9, verificationStatus: 'PRESENT', hourSlot: 1 },
+  { id: 'att-805', sessionId: 'ses-8', courseCode: 'BIS201', sessionTitle: 'W8: IS Security & GPS UMS', sessionNumber: 8, studentId: 'u-5', studentName: 'Amir Zholdassali', checkInTime: '2026-11-02 16:42:01', gpsLatitude: 43.264000, gpsLongitude: 76.953500, distanceToCenterM: 980.0, verificationStatus: 'REJECTED', rejectionReason: 'Distance 980m exceeded allowed radius 150m', hourSlot: 1 },
+  { id: 'att-806', sessionId: 'ses-8', courseCode: 'BIS201', sessionTitle: 'W8: IS Security & GPS UMS', sessionNumber: 8, studentId: 'u-11', studentName: 'Dias Tleubay', checkInTime: '2026-11-02 16:15:10', gpsLatitude: 43.255340, gpsLongitude: 76.943110, distanceToCenterM: 5.6, verificationStatus: 'PRESENT', hourSlot: 1 },
+
+  // Hour 2 (17:00 - 18:00)
+  { id: 'att-807', sessionId: 'ses-8', courseCode: 'BIS201', sessionTitle: 'W8: IS Security & GPS UMS', sessionNumber: 8, studentId: 'u-1', studentName: 'Saniya Niyazkhan', checkInTime: '2026-11-02 17:02:45', gpsLatitude: 43.255324, gpsLongitude: 76.943097, distanceToCenterM: 2.5, verificationStatus: 'PRESENT', hourSlot: 2 },
+  { id: 'att-808', sessionId: 'ses-8', courseCode: 'BIS201', sessionTitle: 'W8: IS Security & GPS UMS', sessionNumber: 8, studentId: 'u-3', studentName: 'Yugai Elya', checkInTime: '2026-11-02 17:01:10', gpsLatitude: 43.255320, gpsLongitude: 76.943094, distanceToCenterM: 1.0, verificationStatus: 'PRESENT', hourSlot: 2 },
+  { id: 'att-809', sessionId: 'ses-8', courseCode: 'BIS201', sessionTitle: 'W8: IS Security & GPS UMS', sessionNumber: 8, studentId: 'u-4', studentName: 'Bagdat Alua', checkInTime: '2026-11-02 17:06:30', gpsLatitude: 43.255330, gpsLongitude: 76.943105, distanceToCenterM: 3.2, verificationStatus: 'PRESENT', hourSlot: 2 },
+
+  // Hour 3 (18:00 - 19:00)
+  { id: 'att-810', sessionId: 'ses-8', courseCode: 'BIS201', sessionTitle: 'W8: IS Security & GPS UMS', sessionNumber: 8, studentId: 'u-1', studentName: 'Saniya Niyazkhan', checkInTime: '2026-11-02 18:03:15', gpsLatitude: 43.255322, gpsLongitude: 76.943095, distanceToCenterM: 2.1, verificationStatus: 'PRESENT', hourSlot: 3 },
+
+  // Week 8 (ses-is202-8) Tuesday Check-ins (IS202, Tue 16:00 - 19:00)
+  { id: 'att-tue-801', sessionId: 'ses-is202-8', courseCode: 'IS202', sessionTitle: 'W8: PostgreSQL Transactions & ACID', sessionNumber: 8, studentId: 'u-13', studentName: 'Daniyar Serik', checkInTime: '2026-11-03 16:01:50', gpsLatitude: 43.255285, gpsLongitude: 76.942955, distanceToCenterM: 1.2, verificationStatus: 'PRESENT', hourSlot: 1 },
+  { id: 'att-tue-802', sessionId: 'ses-is202-8', courseCode: 'IS202', sessionTitle: 'W8: PostgreSQL Transactions & ACID', sessionNumber: 8, studentId: 'u-14', studentName: 'Madina Bazarbay', checkInTime: '2026-11-03 16:03:15', gpsLatitude: 43.255290, gpsLongitude: 76.942960, distanceToCenterM: 2.8, verificationStatus: 'PRESENT', hourSlot: 1 },
+  { id: 'att-tue-803', sessionId: 'ses-is202-8', courseCode: 'IS202', sessionTitle: 'W8: PostgreSQL Transactions & ACID', sessionNumber: 8, studentId: 'u-15', studentName: 'Alikhan Omar', checkInTime: '2026-11-03 16:08:40', gpsLatitude: 43.255300, gpsLongitude: 76.942970, distanceToCenterM: 4.5, verificationStatus: 'PRESENT', hourSlot: 1 },
+  { id: 'att-tue-804', sessionId: 'ses-is202-8', courseCode: 'IS202', sessionTitle: 'W8: PostgreSQL Transactions & ACID', sessionNumber: 8, studentId: 'u-3', studentName: 'Yugai Elya', checkInTime: '2026-11-03 16:14:02', gpsLatitude: 43.255295, gpsLongitude: 76.942965, distanceToCenterM: 3.1, verificationStatus: 'PRESENT', hourSlot: 1 },
+  { id: 'att-tue-805', sessionId: 'ses-is202-8', courseCode: 'IS202', sessionTitle: 'W8: PostgreSQL Transactions & ACID', sessionNumber: 8, studentId: 'u-11', studentName: 'Dias Tleubay', checkInTime: '2026-11-03 16:38:20', gpsLatitude: 43.266000, gpsLongitude: 76.956000, distanceToCenterM: 1120.0, verificationStatus: 'REJECTED', rejectionReason: 'Distance 1120m exceeded allowed radius 150m', hourSlot: 1 },
 ];
 
 export const INITIAL_AUDIT_LOGS: AuditLogEntry[] = [

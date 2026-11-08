@@ -101,18 +101,54 @@ describe('Acceptance Criteria Checklist Verification', () => {
       expect(closedSession.status).toBe('CLOSED');
     });
 
-    it('Scenario 5: Blocks duplicate check-in with composite unique constraint', () => {
-      const existingAttendance = [
-        { sessionId: 'ses-8', studentId: 'u-3', status: 'PRESENT' }
+    it('Scenario 5: Allows check-in for each hour of a 3-hour session, blocks duplicate within same hour', () => {
+      const records = [
+        { sessionId: 'ses-8', studentId: 'u-1', hourSlot: 1, status: 'PRESENT' },
+        { sessionId: 'ses-8', studentId: 'u-1', hourSlot: 2, status: 'PRESENT' },
       ];
-      const isDuplicate = existingAttendance.some(
-        (r) => r.sessionId === 'ses-8' && r.studentId === 'u-3'
+
+      // Checking Hour 1 duplicate
+      const isH1Duplicate = records.some(
+        (r) => r.sessionId === 'ses-8' && r.studentId === 'u-1' && r.hourSlot === 1
       );
-      expect(isDuplicate).toBe(true);
+      expect(isH1Duplicate).toBe(true);
+
+      // Checking Hour 3 availability (not yet checked in)
+      const isH3Duplicate = records.some(
+        (r) => r.sessionId === 'ses-8' && r.studentId === 'u-1' && r.hourSlot === 3
+      );
+      expect(isH3Duplicate).toBe(false);
+
+      // Student can accumulate up to 3 points for a 3-hour lesson
+      const totalPoints = records.filter(r => r.sessionId === 'ses-8' && r.studentId === 'u-1').length;
+      expect(totalPoints).toBe(2);
     });
   });
 
-  describe('4. Data Model Integrity', () => {
+  describe('4. Hourly 3-Hour Lesson Policy Verification', () => {
+    it('verifies 3-hour session schedule (16:00 to 19:00)', () => {
+      const session = CLASS_SESSIONS.find((s) => s.id === 'ses-8')!;
+      expect(session.startTime).toBe('16:00');
+      expect(session.endTime).toBe('19:00');
+    });
+
+    it('distinguishes Hour 1 (16-17), Hour 2 (17-18), and Hour 3 (18-19)', () => {
+      const getHourSlot = (time: string): 1 | 2 | 3 | null => {
+        if (time >= '16:00' && time < '17:00') return 1;
+        if (time >= '17:00' && time < '18:00') return 2;
+        if (time >= '18:00' && time <= '19:00') return 3;
+        return null;
+      };
+
+      expect(getHourSlot('16:15')).toBe(1);
+      expect(getHourSlot('17:30')).toBe(2);
+      expect(getHourSlot('18:45')).toBe(3);
+      expect(getHourSlot('15:55')).toBe(null);
+      expect(getHourSlot('19:05')).toBe(null);
+    });
+  });
+
+  describe('5. Data Model Integrity', () => {
     it('seeds exactly 15 weekly sessions for BIS201', () => {
       const bisSessions = CLASS_SESSIONS.filter((s) => s.courseCode === 'BIS201');
       expect(bisSessions.length).toBe(15);

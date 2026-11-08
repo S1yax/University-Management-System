@@ -1,12 +1,14 @@
 import React, { useEffect, useRef, useState } from 'react';
 import L from 'leaflet';
 import { KBTU_HALL_301_COORDS, formatDistance, calculateHaversineDistance } from '../../utils/geo';
-import { Layers, MapPin, Maximize2, Compass } from 'lucide-react';
+import { Layers, MapPin } from 'lucide-react';
 
 interface CampusMapProps {
   studentLat: number;
   studentLng: number;
   status: 'INSIDE' | 'OUTSIDE' | 'DRIFT';
+  accuracyM?: number;
+  sourceLabel?: string;
   className?: string;
 }
 
@@ -14,19 +16,23 @@ export const CampusMap: React.FC<CampusMapProps> = ({
   studentLat,
   studentLng,
   status,
+  accuracyM,
+  sourceLabel,
   className = '',
 }) => {
   const mapContainerRef = useRef<HTMLDivElement>(null);
   const mapInstanceRef = useRef<L.Map | null>(null);
   const studentMarkerRef = useRef<L.Marker | null>(null);
+  const accuracyCircleRef = useRef<L.Circle | null>(null);
   const polylineRef = useRef<L.Polyline | null>(null);
   const [mapLayer, setMapLayer] = useState<'OSM' | 'HOT'>('OSM');
 
+  const center: [number, number] = [KBTU_HALL_301_COORDS.lat, KBTU_HALL_301_COORDS.lng];
+  const dist = calculateHaversineDistance(studentLat, studentLng, center[0], center[1]);
+  const isInside = dist <= KBTU_HALL_301_COORDS.allowedRadiusM;
+
   useEffect(() => {
     if (!mapContainerRef.current) return;
-
-    // Center on KBTU Main Campus, Tole Bi 59, Almaty
-    const center: [number, number] = [KBTU_HALL_301_COORDS.lat, KBTU_HALL_301_COORDS.lng];
 
     // Destroy existing instance if any
     if (mapInstanceRef.current) {
@@ -36,7 +42,7 @@ export const CampusMap: React.FC<CampusMapProps> = ({
 
     const map = L.map(mapContainerRef.current, {
       center,
-      zoom: 16,
+      zoom: isInside ? 16 : 14,
       zoomControl: true,
       scrollWheelZoom: false,
     });
@@ -94,40 +100,68 @@ export const CampusMap: React.FC<CampusMapProps> = ({
       );
 
     // Student Marker Icon generator
-    const getStudentIcon = (st: 'INSIDE' | 'OUTSIDE' | 'DRIFT') => {
-      const color = st === 'INSIDE' ? '#10B981' : st === 'OUTSIDE' ? '#EF4444' : '#F59E0B';
-      const label = st === 'INSIDE' ? '✓' : st === 'OUTSIDE' ? '✕' : '⚠';
+    const getStudentIcon = (effectiveStatus: 'INSIDE' | 'OUTSIDE' | 'DRIFT') => {
+      const color = effectiveStatus === 'INSIDE' ? '#10B981' : effectiveStatus === 'OUTSIDE' ? '#EF4444' : '#F59E0B';
+      const label = effectiveStatus === 'INSIDE' ? '✓' : effectiveStatus === 'OUTSIDE' ? '✕' : '⚠';
       return L.divIcon({
         className: 'custom-student-marker',
         html: `
-          <div style="background-color: ${color}; color: white; width: 28px; height: 28px; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-weight: bold; font-size: 13px; box-shadow: 0 4px 8px rgba(0,0,0,0.3); border: 2.5px solid white; animation: ${st === 'DRIFT' ? 'pulse 1.5s infinite' : 'none'};">
+          <div style="background-color: ${color}; color: white; width: 30px; height: 30px; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-weight: bold; font-size: 14px; box-shadow: 0 4px 10px rgba(0,0,0,0.35); border: 2.5px solid white; animation: ${effectiveStatus === 'DRIFT' ? 'pulse 1.5s infinite' : 'none'};">
             ${label}
           </div>
         `,
-        iconSize: [28, 28],
-        iconAnchor: [14, 14],
+        iconSize: [30, 30],
+        iconAnchor: [15, 15],
       });
     };
 
+    const effectiveStatus: 'INSIDE' | 'OUTSIDE' | 'DRIFT' =
+      status === 'DRIFT' ? 'DRIFT' : isInside ? 'INSIDE' : 'OUTSIDE';
+
     const studentMarker = L.marker([studentLat, studentLng], {
-      icon: getStudentIcon(status),
+      icon: getStudentIcon(effectiveStatus),
     }).addTo(map);
 
     studentMarkerRef.current = studentMarker;
 
+    studentMarker.bindTooltip(
+      `<b>${sourceLabel || 'Your Location'}</b><br/>Distance to KBTU: <b>${formatDistance(dist)}</b><br/>${
+        isInside ? '🟢 Inside 150m Circle (Allowed)' : '🔴 Outside 150m Circle (Blocked)'
+      }`,
+      { permanent: false, direction: 'top' }
+    );
+
+    // Optional GPS accuracy circle
+    if (accuracyM && accuracyM > 0) {
+      const accCircle = L.circle([studentLat, studentLng], {
+        radius: Math.min(accuracyM, 300),
+        color: effectiveStatus === 'INSIDE' ? '#10B981' : '#EF4444',
+        fillColor: effectiveStatus === 'INSIDE' ? '#10B981' : '#EF4444',
+        fillOpacity: 0.1,
+        weight: 1,
+        dashArray: '3, 3',
+      }).addTo(map);
+      accuracyCircleRef.current = accCircle;
+    }
+
     // Polyline connecting student and Hall 301 centroid
-    const polyline = L.polyline(
-      [center, [studentLat, studentLng]],
-      {
-        color: status === 'INSIDE' ? '#10B981' : '#EF4444',
-        weight: 3,
-        dashArray: '5, 5',
-      }
-    ).addTo(map);
+    const polyline = L.polyline([center, [studentLat, studentLng]], {
+      color: effectiveStatus === 'INSIDE' ? '#10B981' : '#EF4444',
+      weight: 3,
+      dashArray: '5, 5',
+    }).addTo(map);
 
     polylineRef.current = polyline;
 
-    // CRITICAL: Call invalidateSize to guarantee tiles render properly even if DOM was animating!
+    // Auto-fit bounds if outside so both student and KBTU are clearly visible
+    if (!isInside) {
+      map.fitBounds([center, [studentLat, studentLng]], {
+        padding: [60, 60],
+        maxZoom: 16,
+      });
+    }
+
+    // Invalidate size on mount to guarantee tiles render properly
     const timer1 = setTimeout(() => {
       map.invalidateSize();
     }, 150);
@@ -143,66 +177,85 @@ export const CampusMap: React.FC<CampusMapProps> = ({
     };
   }, [mapLayer]);
 
-  // Update student position dynamically when simulation mode changes
+  // Update student position dynamically when coordinates or status changes
   useEffect(() => {
     if (!mapInstanceRef.current || !studentMarkerRef.current) return;
 
     const studentPos: [number, number] = [studentLat, studentLng];
     studentMarkerRef.current.setLatLng(studentPos);
 
-    const color = status === 'INSIDE' ? '#10B981' : status === 'OUTSIDE' ? '#EF4444' : '#F59E0B';
-    const label = status === 'INSIDE' ? '✓' : status === 'OUTSIDE' ? '✕' : '⚠';
+    const currentDist = calculateHaversineDistance(studentLat, studentLng, center[0], center[1]);
+    const currentIsInside = currentDist <= KBTU_HALL_301_COORDS.allowedRadiusM;
+    const effectiveStatus: 'INSIDE' | 'OUTSIDE' | 'DRIFT' =
+      status === 'DRIFT' ? 'DRIFT' : currentIsInside ? 'INSIDE' : 'OUTSIDE';
+
+    const color = effectiveStatus === 'INSIDE' ? '#10B981' : effectiveStatus === 'OUTSIDE' ? '#EF4444' : '#F59E0B';
+    const label = effectiveStatus === 'INSIDE' ? '✓' : effectiveStatus === 'OUTSIDE' ? '✕' : '⚠';
 
     studentMarkerRef.current.setIcon(
       L.divIcon({
         className: 'custom-student-marker',
         html: `
-          <div style="background-color: ${color}; color: white; width: 28px; height: 28px; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-weight: bold; font-size: 13px; box-shadow: 0 4px 8px rgba(0,0,0,0.3); border: 2.5px solid white;">
+          <div style="background-color: ${color}; color: white; width: 30px; height: 30px; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-weight: bold; font-size: 14px; box-shadow: 0 4px 10px rgba(0,0,0,0.35); border: 2.5px solid white;">
             ${label}
           </div>
         `,
-        iconSize: [28, 28],
-        iconAnchor: [14, 14],
+        iconSize: [30, 30],
+        iconAnchor: [15, 15],
       })
     );
 
-    const dist = calculateHaversineDistance(
-      studentLat,
-      studentLng,
-      KBTU_HALL_301_COORDS.lat,
-      KBTU_HALL_301_COORDS.lng
-    );
-
     studentMarkerRef.current.bindTooltip(
-      `Student Position: ${formatDistance(dist)} (${dist <= 150 ? 'Within allowed campus radius' : 'Outside campus radius'})`,
+      `<b>${sourceLabel || 'Your Location'}</b><br/>Distance to KBTU: <b>${formatDistance(currentDist)}</b><br/>${
+        currentIsInside ? '🟢 Inside 150m Circle (Allowed)' : '🔴 Outside 150m Circle (Blocked)'
+      }`,
       { permanent: false, direction: 'top' }
     );
 
+    // Update or create accuracy circle
+    if (accuracyCircleRef.current) {
+      if (accuracyM && accuracyM > 0) {
+        accuracyCircleRef.current.setLatLng(studentPos);
+        accuracyCircleRef.current.setRadius(Math.min(accuracyM, 300));
+        accuracyCircleRef.current.setStyle({
+          color: effectiveStatus === 'INSIDE' ? '#10B981' : '#EF4444',
+          fillColor: effectiveStatus === 'INSIDE' ? '#10B981' : '#EF4444',
+        });
+      } else {
+        accuracyCircleRef.current.remove();
+        accuracyCircleRef.current = null;
+      }
+    } else if (accuracyM && accuracyM > 0) {
+      const accCircle = L.circle(studentPos, {
+        radius: Math.min(accuracyM, 300),
+        color: effectiveStatus === 'INSIDE' ? '#10B981' : '#EF4444',
+        fillColor: effectiveStatus === 'INSIDE' ? '#10B981' : '#EF4444',
+        fillOpacity: 0.1,
+        weight: 1,
+        dashArray: '3, 3',
+      }).addTo(mapInstanceRef.current);
+      accuracyCircleRef.current = accCircle;
+    }
+
     if (polylineRef.current) {
-      polylineRef.current.setLatLngs([
-        [KBTU_HALL_301_COORDS.lat, KBTU_HALL_301_COORDS.lng],
-        studentPos,
-      ]);
+      polylineRef.current.setLatLngs([center, studentPos]);
       polylineRef.current.setStyle({
-        color: status === 'INSIDE' ? '#10B981' : '#EF4444',
+        color: effectiveStatus === 'INSIDE' ? '#10B981' : '#EF4444',
       });
     }
 
-    // Auto fit view to include both points
-    if (status === 'OUTSIDE') {
-      mapInstanceRef.current.fitBounds(
-        [
-          [KBTU_HALL_301_COORDS.lat, KBTU_HALL_301_COORDS.lng],
-          studentPos,
-        ],
-        { padding: [50, 50], maxZoom: 16 }
-      );
+    // Auto fit view to include both points if outside
+    if (!currentIsInside) {
+      mapInstanceRef.current.fitBounds([center, studentPos], {
+        padding: [60, 60],
+        maxZoom: 16,
+      });
     } else {
-      mapInstanceRef.current.setView([KBTU_HALL_301_COORDS.lat, KBTU_HALL_301_COORDS.lng], 16);
+      mapInstanceRef.current.setView(center, 16);
     }
 
     mapInstanceRef.current.invalidateSize();
-  }, [studentLat, studentLng, status]);
+  }, [studentLat, studentLng, status, accuracyM, sourceLabel]);
 
   return (
     <div className={`relative w-full rounded-xl overflow-hidden border border-[#D6E2F5] shadow-xs bg-[#E8F0FE]/30 ${className}`}>
@@ -228,7 +281,7 @@ export const CampusMap: React.FC<CampusMapProps> = ({
       <div
         ref={mapContainerRef}
         className="w-full"
-        style={{ height: '340px', minHeight: '340px', width: '100%' }}
+        style={{ height: '360px', minHeight: '360px', width: '100%' }}
       />
     </div>
   );

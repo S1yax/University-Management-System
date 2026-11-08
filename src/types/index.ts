@@ -94,6 +94,7 @@ export interface AttendanceRecord {
   isOverride?: boolean;
   overrideBy?: string;
   overrideReason?: string;
+  hourSlot?: 1 | 2 | 3; // 1 = 16:00-17:00, 2 = 17:00-18:00, 3 = 18:00-19:00 for 3-hour sessions
   manualReviewNote?: string;
 }
 
