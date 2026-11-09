@@ -106,7 +106,7 @@ export const App: React.FC = () => {
     ],
   };
 
-  const sharedProjectPaths = ['database-erd', 'team-39', 'project-status'];
+  const sharedProjectPaths = ['database-erd', 'team-39', 'project-status', 'change-password'];
 
   const isAllowed =
     sharedProjectPaths.includes(activePath) ||
@@ -170,6 +170,8 @@ export const App: React.FC = () => {
         return t('team39');
       case 'project-status':
         return t('projectStatus');
+      case 'change-password':
+        return 'Change password';
       default:
         return t('dashboard');
     }
@@ -185,6 +187,7 @@ export const App: React.FC = () => {
     if (activePath === 'database-erd') return <DatabaseErdPage />;
     if (activePath === 'team-39') return <Team39Page />;
     if (activePath === 'project-status') return <ProjectStatusPage />;
+    if (activePath === 'change-password') return <ChangePasswordPage />;
 
     // Role-specific routing
     switch (activePath) {
