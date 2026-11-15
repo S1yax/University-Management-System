@@ -33,6 +33,13 @@ import {
   verifyPassword,
 } from '../utils/credentials';
 import { isPasswordExpired, semesterOf } from '../utils/passwordExpiry';
+import {
+  clearLoginFailures,
+  getLockRemainingSeconds,
+  LOCKOUT_SECONDS,
+  MAX_FAILED_ATTEMPTS,
+  registerLoginFailure,
+} from '../utils/loginLockout';
 
 export type TimeSimulationMode =
   | 'DURING_LESSON'
@@ -86,6 +93,7 @@ interface AppContextType {
   authReady: boolean;
   /** Set when the password was created in an earlier semester (students): the user must choose a new one. */
   passwordChangeInfo: { setIn: string; current: string } | null;
+  idleLoggedOut: boolean;
   login: (
     loginInput: string,
     passwordInput: string,
@@ -126,6 +134,10 @@ const STORAGE_KEYS = {
   ATTENDANCE: 'kbtu_ums_attendance',
   AUDIT: 'kbtu_ums_audit_logs',
 };
+// Automatic sign-out after this much time without any mouse / keyboard / touch activity.
+// For a quick demo temporarily set it to 0.2 (about 12 seconds).
+const IDLE_TIMEOUT_MINUTES = 15;
+const IDLE_TIMEOUT_MS = IDLE_TIMEOUT_MINUTES * 60 * 1000;
 
 export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   // Current language
@@ -253,6 +265,8 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   // Security Lockout State
   const [failedAttempts, setFailedAttempts] = useState<number>(0);
   const [lockoutRemainingSeconds, setLockoutRemainingSeconds] = useState<number>(0);
+    // Set when the user was signed out because of inactivity (cleared on the next sign-in)
+  const [idleLoggedOut, setIdleLoggedOut] = useState(false);
 
   // Older versions stored the whole user (with the role) in localStorage: remove that leftover once.
   useEffect(() => {
@@ -370,17 +384,19 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     else await forgetThisDevice();
   };
 
-  const login = async (loginInput: string, passwordInput: string, remember = false) => {
-    // If locked out
-    if (lockoutRemainingSeconds > 0) {
-      return { success: false, locked: true };
-    }
-
+    const login = async (loginInput: string, passwordInput: string, remember = false) => {
     const trimmedLogin = loginInput.trim().toLowerCase();
 
     // Empty fields check
     if (!trimmedLogin || !passwordInput) {
       return { success: false, errorKey: 'invalidCredentials' };
+    }
+
+    // The lock is stored per login in localStorage, so refreshing the page does not remove it.
+    const lockedFor = getLockRemainingSeconds(trimmedLogin);
+    if (lockedFor > 0) {
+      setLockoutRemainingSeconds(lockedFor);
+      return { success: false, locked: true };
     }
 
     // Match user and check the password against the stored salted hash.
@@ -390,8 +406,8 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     const passwordOk = record ? await verifyPassword(record, passwordInput) : false;
 
     if (!foundUser || !passwordOk) {
-      const newAttempts = failedAttempts + 1;
-      setFailedAttempts(newAttempts);
+      const failure = registerLoginFailure(trimmedLogin);
+      setFailedAttempts(failure.attempts);
 
       addAuditLog(
         'LOGIN_FAILURE',
@@ -400,11 +416,11 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         trimmedLogin || 'anonymous'
       );
 
-      if (newAttempts >= 5) {
-        setLockoutRemainingSeconds(30);
+      if (failure.locked) {
+        setLockoutRemainingSeconds(failure.remainingSeconds);
         addAuditLog(
           'ACCOUNT_LOCKED',
-          `Security lockout triggered for username '${trimmedLogin}' after 5 consecutive failed attempts. Locked for 30s.`,
+          `Security lockout triggered for username '${trimmedLogin}' after ${MAX_FAILED_ATTEMPTS} consecutive failed attempts. Locked for ${LOCKOUT_SECONDS}s.`,
           'ERROR',
           trimmedLogin || 'anonymous'
         );
@@ -416,7 +432,9 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
     // Success
     await applyRememberChoice(foundUser.username, remember);
+    clearLoginFailures(foundUser.username);
     setFailedAttempts(0);
+    setIdleLoggedOut(false);
     setCurrentUser(foundUser);
     setActivePath('dashboard');
 
@@ -459,6 +477,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
     await applyRememberChoice(user.username, remember);
     setFailedAttempts(0);
+    setIdleLoggedOut(false);
     setCurrentUser(user);
     setActivePath('dashboard');
     addAuditLog(
@@ -528,6 +547,46 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     setCurrentUser(null);
     setActivePath('dashboard');
   };
+
+    // Automatic sign-out after inactivity: recorded in the audit log, and this device stops auto sign-in.
+  const idleLogout = () => {
+    if (!currentUser) return;
+    addAuditLog(
+      'SESSION_TIMEOUT',
+      `User ${currentUser.fullName} (${currentUser.username}) was signed out automatically after ${IDLE_TIMEOUT_MINUTES} minutes of inactivity.`,
+      'WARNING',
+      currentUser.username
+    );
+    void forgetThisDevice();
+    setIdleLoggedOut(true);
+    setCurrentUser(null);
+    setActivePath('dashboard');
+  };
+
+  // Watch for activity while somebody is signed in (each browser tab has its own session)
+  useEffect(() => {
+    if (!currentUser) return;
+
+    let lastActivity = Date.now();
+    const markActive = () => {
+      lastActivity = Date.now();
+    };
+    const events = ['mousemove', 'mousedown', 'keydown', 'scroll', 'touchstart', 'click'];
+    events.forEach((name) => window.addEventListener(name, markActive, { passive: true }));
+
+    const timer = setInterval(() => {
+      if (Date.now() - lastActivity >= IDLE_TIMEOUT_MS) {
+        clearInterval(timer);
+        idleLogout();
+      }
+    }, 5000);
+
+    return () => {
+      clearInterval(timer);
+      events.forEach((name) => window.removeEventListener(name, markActive));
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [currentUser]);
 
   // Student Attendance Calculations (including hourly marks for 3-hour sessions)
   const getStudentAttendanceRate = (studentId: string, courseCode: string) => {
@@ -901,6 +960,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         setActivePath,
         authReady,
         passwordChangeInfo,
+        idleLoggedOut,
         login,
         isAccountActivated,
         activateAccount,
