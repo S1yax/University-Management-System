@@ -6,7 +6,7 @@ import { checkPassword } from '../../utils/passwordPolicy';
 import { PasswordChecklist } from './PasswordChecklist';
 
 export const LoginPage: React.FC = () => {
-  const { login, isAccountActivated, activateAccount, language, setLanguage, t, failedAttempts, lockoutRemainingSeconds, users } =
+  const { login, isAccountActivated, activateAccount, language, setLanguage, t, failedAttempts, lockoutRemainingSeconds, users, idleLoggedOut } =
     useApp();
 
   const [usernameInput, setUsernameInput] = useState('');
@@ -246,6 +246,14 @@ export const LoginPage: React.FC = () => {
             </p>
             <div className="w-12 h-1 bg-[#0B3D91] rounded-full mx-auto mt-2.5" />
           </div>
+
+          {/* Inactivity Logout Notification */}
+          {idleLoggedOut && (
+            <div className="mb-4 p-3 bg-amber-50 border border-amber-200 rounded-xl flex items-start gap-2.5 text-xs text-amber-800">
+              <AlertCircle className="w-4 h-4 text-amber-600 mt-0.5 shrink-0" />
+              <span>Сессия завершена автоматически после 15 минут бездействия. Пожалуйста, выполните вход снова.</span>
+            </div>
+          )}
 
           {/* Form */}
           {mode === 'create' ? createPasswordForm : (

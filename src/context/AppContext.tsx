@@ -183,7 +183,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     return saved ? JSON.parse(saved) : CLASS_SESSIONS;
   });
 
-  const [timeSimulationMode, setTimeSimulationMode] = useState<TimeSimulationMode>('DURING_LESSON');
+  const [timeSimulationMode, setTimeSimulationMode] = useState<TimeSimulationMode>('REAL_TIME');
 
   const checkSessionTime = (sessionId: string): LessonTimeCheck => {
     const session = classSessions.find((s) => s.id === sessionId);
@@ -265,7 +265,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   // Security Lockout State
   const [failedAttempts, setFailedAttempts] = useState<number>(0);
   const [lockoutRemainingSeconds, setLockoutRemainingSeconds] = useState<number>(0);
-    // Set when the user was signed out because of inactivity (cleared on the next sign-in)
+  // Set when the user was signed out because of inactivity (cleared on the next sign-in)
   const [idleLoggedOut, setIdleLoggedOut] = useState(false);
 
   // Older versions stored the whole user (with the role) in localStorage: remove that leftover once.
@@ -384,7 +384,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     else await forgetThisDevice();
   };
 
-    const login = async (loginInput: string, passwordInput: string, remember = false) => {
+  const login = async (loginInput: string, passwordInput: string, remember = false) => {
     const trimmedLogin = loginInput.trim().toLowerCase();
 
     // Empty fields check
@@ -476,6 +476,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     );
 
     await applyRememberChoice(user.username, remember);
+    clearLoginFailures(user.username);
     setFailedAttempts(0);
     setIdleLoggedOut(false);
     setCurrentUser(user);
@@ -548,7 +549,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     setActivePath('dashboard');
   };
 
-    // Automatic sign-out after inactivity: recorded in the audit log, and this device stops auto sign-in.
+  // Automatic sign-out after inactivity: recorded in the audit log, and this device stops auto sign-in.
   const idleLogout = () => {
     if (!currentUser) return;
     addAuditLog(
