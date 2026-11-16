@@ -1,5 +1,7 @@
 import React, { useState, useMemo } from 'react';
 import { useApp } from '../../context/AppContext';
+import { DataSourceBadge } from '../common/DataSourceBadge';
+import { TestTimePicker } from '../common/TestTimePicker';
 import {
   Radio,
   Power,
@@ -272,6 +274,10 @@ export const LiveAttendancePage: React.FC = () => {
                 Занятия проводятся по понедельникам и вторникам с 16:00 до 19:00 (с 4 до 7). У каждого курса свой отдельный список студентов.
               </p>
             </div>
+          </div>
+          <div className="flex flex-wrap items-center gap-2">
+            <DataSourceBadge />
+            <TestTimePicker />
           </div>
           <span className="text-[11px] font-semibold bg-[#E8F0FE] text-[#0B3D91] px-2.5 py-1 rounded-full border border-[#D6E2F5]">
             2 активных курса в неделю
