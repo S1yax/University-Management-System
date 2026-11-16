@@ -1,8 +1,13 @@
-NOTICE:  TEST 1 PASS: a valid check-in is saved
-NOTICE:  TEST 2 PASS: duplicate check-in rejected (uq_session_student)
-NOTICE:  TEST 3 PASS: unknown student rejected (foreign key)
-NOTICE:  TEST 4 PASS: wrong status rejected (CHECK)
-NOTICE:  TEST 5 PASS: duplicate registration rejected (uq_student_course_semester)
-NOTICE:  TEST 6 PASS: override without a reason rejected
-NOTICE:  TEST 7 PASS: attendance of Mubarak in BIS201 = 57.1 (same as website)
-NOTICE:  TEST 8 PASS: 5 check-ins deleted together with the lesson (CASCADE)
+TEST 1 PASS: tracker ses-8: Saniya 3/3, Mubarak 1/3, Amir hour 1 REJECTED
+TEST 2 PASS: Mubarak BIS201 = 5 of 10 points = 50.0% (website shows 50%)
+TEST 3 PASS: 16:00 -> hour 1, 17:20 -> hour 2, 18:59 -> hour 3, 19:00 and another day -> none
+TEST 4 PASS: Mubarak hour 2 check-in saved
+TEST 5 PASS: same hour twice rejected (uq_session_student_hour)
+TEST 6 PASS: hour 3 saved, tracker now shows Mubarak 3/3
+TEST 7 PASS: hour 4 rejected (CHECK hour_slot 1-3)
+TEST 8 PASS: hour 2 in ses-1 rejected (trigger: lesson has only 1 tracked hour)
+TEST 9 PASS: unknown student rejected (foreign key)
+TEST 10 PASS: status MAYBE rejected (CHECK)
+TEST 11 PASS: duplicate registration rejected (uq_student_course_semester)
+TEST 12 PASS: override without a reason rejected (chk_override_reason)
+TEST 13 PASS: ses-1 deleted together with its 5 check-ins
