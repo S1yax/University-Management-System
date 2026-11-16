@@ -25,6 +25,7 @@ before(async () => {
 
 after(async () => {
   await pool.query('DELETE FROM attendance_records WHERE attendance_id > $1', [lastIdBefore]);
+  await pool.query("UPDATE class_sessions SET status = 'OPEN' WHERE session_id = 'ses-8'");
   server.close();
   await pool.end();
 });
@@ -130,4 +131,31 @@ test('A13 teacher changes Amir hour 2 to PRESENT with a reason', async () => {
 test('A14 teacher cannot set hour 2 in a lesson tracked once', async () => {
   const r = await post('/override', { sessionId: 'ses-1', studentId: AMIR, hourSlot: 2, status: 'PRESENT', reason: 'test' });
   assert.equal(r.code, 400);
+});
+
+test('A15 weak GPS inside the building is saved as MANUAL_REVIEW', async () => {
+  const r = await post('/checkin', { sessionId: 'ses-8', studentId: AMIR, ...FAR_AWAY, time: '2026-11-02 18:20', weakSignal: true });
+  assert.equal(r.code, 201);
+  assert.equal(r.body.status, 'MANUAL_REVIEW_SUBMITTED');
+  assert.equal(r.body.record.verification_status, 'MANUAL_REVIEW');
+});
+
+test('A16 records list has the check-ins made above', async () => {
+  const r = await get('/records?sessionId=ses-8');
+  assert.equal(r.code, 200);
+  const mine = r.body.records.filter((x) => x.student_id === MUBARAK);
+  assert.deepEqual(mine.map((x) => x.hour_slot).sort(), [1, 2, 3]);
+  assert.equal(typeof mine[0].gps_latitude, 'number');
+});
+
+test('A17 teacher closes ses-8, then a check-in is rejected', async () => {
+  const c = await fetch(`${base}/sessions/ses-8`, {
+    method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ status: 'CLOSED' }),
+  });
+  assert.equal(c.status, 200);
+  const s = await get('/sessions');
+  assert.equal(s.body.sessions.find((x) => x.session_id === 'ses-8').status, 'CLOSED');
+  const r = await checkin('24B031666', '2026-11-02 18:30');
+  assert.equal(r.code, 403);
+  assert.equal(r.body.status, 'REJECTED_CLOSED');
 });

@@ -5,6 +5,9 @@
 //   GET  /api/tracker?sessionId=ses-8     the teacher's table: every student, every hour
 //   POST /api/override                    the teacher sets a status by hand (reason required)
 //   GET  /api/attendance?studentId=...    attendance % per course (counts hours)
+//   GET  /api/records[?sessionId=ses-8]   all check-ins (the website loads them on start)
+//   GET  /api/sessions                    lesson statuses (OPEN / CLOSED)
+//   PATCH /api/sessions/:id               the teacher opens or closes check-in
 import express from 'express';
 import cors from 'cors';
 import { pool, PG } from './db.js';
@@ -17,7 +20,9 @@ const ALLOW_DEMO_TIME = (process.env.ALLOW_DEMO_TIME ?? 'true') === 'true';
 const STATUSES = ['PRESENT', 'REJECTED', 'MANUAL_REVIEW'];
 
 export const app = express();
-app.use(cors({ origin: process.env.CORS_ORIGIN || 'http://localhost:5173' }));
+// CORS_ORIGIN: one address, a list with commas, or * (any address, for the two-device demo)
+const origins = (process.env.CORS_ORIGIN || 'http://localhost:5173').split(',').map((o) => o.trim());
+app.use(cors({ origin: origins.includes('*') ? true : origins }));
 app.use(express.json());
 
 const isNumber = (v) => typeof v === 'number' && Number.isFinite(v);
@@ -34,12 +39,14 @@ app.get('/api/health', route(async (_req, res) => {
 
 // ---------------------------------------------------------------------
 // POST /api/checkin
-// Body: { sessionId, studentId, latitude, longitude, time? }
+// Body: { sessionId, studentId, latitude, longitude, time?, weakSignal? }
+// weakSignal = true: GPS is weak inside the building, the student asks the teacher
+// to check by hand. The check-in is saved as MANUAL_REVIEW (like isDrift on the website).
 // The checks go in the same order as checkInGPS() on the website:
 //   1. lesson time  2. lesson OPEN  3. student enrolled  4. one check-in per hour  5. distance
 // ---------------------------------------------------------------------
 app.post('/api/checkin', route(async (req, res) => {
-  const { sessionId, studentId, latitude, longitude, time } = req.body ?? {};
+  const { sessionId, studentId, latitude, longitude, time, weakSignal } = req.body ?? {};
   if (!sessionId || !studentId || !isNumber(latitude) || !isNumber(longitude)
       || Math.abs(latitude) > 90 || Math.abs(longitude) > 180) {
     return reply(res, 400, 'BAD_REQUEST', 'sessionId, studentId, latitude and longitude are required.');
@@ -86,8 +93,11 @@ app.post('/api/checkin', route(async (req, res) => {
     distanceMeters(latitude, longitude, Number(lesson.centroid_lat), Number(lesson.centroid_lng)) * 10
   ) / 10;
   const inside = distance <= lesson.allowed_campus_radius_m;
-  const status = inside ? 'PRESENT' : 'REJECTED';
-  const reason = inside ? null : `Distance ${distance}m exceeded allowed radius ${lesson.allowed_campus_radius_m}m`;
+  const review = weakSignal === true;
+  const status = review ? 'MANUAL_REVIEW' : inside ? 'PRESENT' : 'REJECTED';
+  const reason = review
+    ? 'Indoor GPS drift: the student asked for a manual review'
+    : inside ? null : `Distance ${distance}m exceeded allowed radius ${lesson.allowed_campus_radius_m}m`;
 
   // 4. One check-in per hour: the database rule uq_session_student_hour decides
   try {
@@ -102,8 +112,9 @@ app.post('/api/checkin', route(async (req, res) => {
        latitude.toFixed(6), longitude.toFixed(6), distance, status, reason]
     );
     return reply(res, 201,
-      inside ? 'SUCCESS_PRESENT' : 'REJECTED_RADIUS',
-      inside ? `Checked in for hour ${lesson.hour_slot}.` : reason,
+      review ? 'MANUAL_REVIEW_SUBMITTED' : inside ? 'SUCCESS_PRESENT' : 'REJECTED_RADIUS',
+      review ? `Manual review for hour ${lesson.hour_slot} sent to the teacher.`
+        : inside ? `Checked in for hour ${lesson.hour_slot}.` : reason,
       { hourSlot: lesson.hour_slot, distanceM: distance, record: saved.rows[0] });
   } catch (err) {
     if (err.code === PG.UNIQUE) {
@@ -196,6 +207,49 @@ app.get('/api/attendance', route(async (req, res) => {
     [studentId, asOf || null]
   );
   res.json({ studentId, courses: rows });
+}));
+
+// ---------------------------------------------------------------------
+// GET /api/records?sessionId=ses-8   (sessionId is optional)
+// ---------------------------------------------------------------------
+app.get('/api/records', route(async (req, res) => {
+  const { sessionId } = req.query;
+  const { rows } = await pool.query(
+    `SELECT attendance_id, session_id, student_id, hour_slot, check_in_time,
+            gps_latitude::float AS gps_latitude, gps_longitude::float AS gps_longitude,
+            distance_to_center_m::float AS distance_to_center_m,
+            verification_status, rejection_reason, is_override, override_by, override_reason
+     FROM attendance_records
+     WHERE $1::varchar IS NULL OR session_id = $1
+     ORDER BY check_in_time DESC, attendance_id DESC`,
+    [sessionId || null]
+  );
+  res.json({ records: rows });
+}));
+
+// ---------------------------------------------------------------------
+// GET /api/sessions  and  PATCH /api/sessions/:id  { status: "OPEN" | "CLOSED" }
+// ---------------------------------------------------------------------
+app.get('/api/sessions', route(async (_req, res) => {
+  const { rows } = await pool.query(
+    `SELECT session_id, course_code, session_number, session_date, status, tracked_hours
+     FROM class_sessions ORDER BY course_code, session_number`
+  );
+  res.json({ sessions: rows });
+}));
+
+app.patch('/api/sessions/:id', route(async (req, res) => {
+  const { status } = req.body ?? {};
+  if (!['OPEN', 'CLOSED'].includes(status)) {
+    return reply(res, 400, 'BAD_REQUEST', 'status must be OPEN or CLOSED.');
+  }
+  const { rows } = await pool.query(
+    `UPDATE class_sessions SET status = $2 WHERE session_id = $1
+     RETURNING session_id, status`,
+    [req.params.id, status]
+  );
+  if (rows.length === 0) return reply(res, 404, 'NOT_FOUND', `Lesson ${req.params.id} does not exist.`);
+  return reply(res, 200, 'UPDATED', `Lesson ${req.params.id} is now ${status}.`, { session: rows[0] });
 }));
 
 // Any other error: log it and answer without showing database details

@@ -25,13 +25,15 @@ import {
   shouldReviewWeakGps,
 } from '../../utils/geo';
 import { CampusMap } from '../common/CampusMap';
+import { DataSourceBadge } from '../common/DataSourceBadge';
+import { TestTimePicker } from '../common/TestTimePicker';
 
 export const AttendanceCheckInPage: React.FC = () => {
   const {
     currentUser,
     classSessions,
     attendanceRecords,
-    checkInGPS,
+    checkInGPSAsync,
     requestManualReview,
     getStudentAttendanceRate,
     courses,
@@ -207,17 +209,16 @@ export const AttendanceCheckInPage: React.FC = () => {
 
     setIsLocating(true);
 
-    setTimeout(() => {
-      setIsLocating(false);
-      const result = checkInGPS(
-        activeSession.id,
-        studentCoords.lat,
-        studentCoords.lng,
-        isWeakSignal,
-        activeHourSlot
-      );
-      processCheckInResult(result);
-    }, 400);
+    // Saved on the server (PostgreSQL) when it is online, otherwise in this browser
+    checkInGPSAsync(
+      activeSession.id,
+      studentCoords.lat,
+      studentCoords.lng,
+      isWeakSignal,
+      activeHourSlot
+    )
+      .then(processCheckInResult)
+      .finally(() => setIsLocating(false));
   };
 
   const processCheckInResult = (result: any) => {
@@ -308,6 +309,12 @@ export const AttendanceCheckInPage: React.FC = () => {
           <p className="text-xs sm:text-sm text-blue-100 mt-1">
             {activeSession?.title}
           </p>
+          <div className="mt-2">
+            <div className="flex flex-wrap items-center gap-2">
+              <DataSourceBadge />
+              <TestTimePicker />
+            </div>
+          </div>
 
           <div className="mt-4 pt-4 border-t border-white/20 grid grid-cols-1 sm:grid-cols-3 gap-3 text-xs">
             <div className="flex items-center gap-2">

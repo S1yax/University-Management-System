@@ -1,4 +1,4 @@
-import React, { createContext, useContext, useState, useEffect } from 'react';
+import React, { createContext, useContext, useState, useEffect, useCallback, useRef } from 'react';
 import {
   User,
   Language,
@@ -19,6 +19,7 @@ import {
   COURSES,
 } from '../data/mockData';
 import { calculateHaversineDistance, KBTU_HALL_301_COORDS } from '../utils/geo';
+import { attendanceApi, isApiConfigured, ServerRecord } from '../api/attendanceApi';
 import { getTranslation } from '../utils/i18n';
 import { checkPassword } from '../utils/passwordPolicy';
 import {
@@ -112,6 +113,12 @@ interface AppContextType {
   changePassword: (currentPassword: string, newPassword: string, confirmPassword: string) => Promise<PasswordResult>;
   logout: () => void;
   checkInGPS: (sessionId: string, latitude: number, longitude: number, isDrift?: boolean, hourSlot?: 1 | 2 | 3) => CheckInResult;
+  /** Same as checkInGPS, but saves to the server (PostgreSQL) when it is online. */
+  checkInGPSAsync: (sessionId: string, latitude: number, longitude: number, isDrift?: boolean, hourSlot?: 1 | 2 | 3) => Promise<CheckInResult>;
+  /** true = the website is connected to the server, false = data only in this browser. */
+  serverOnline: boolean;
+  isApiConfigured: boolean;
+  refreshFromServer: () => Promise<void>;
   requestManualReview: (sessionId: string, reason: string) => void;
   toggleSessionStatus: (sessionId: string) => void;
   overrideAttendance: (recordId: string, newStatus: VerificationStatus, reason: string) => void;
@@ -183,7 +190,22 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     return saved ? JSON.parse(saved) : CLASS_SESSIONS;
   });
 
-  const [timeSimulationMode, setTimeSimulationMode] = useState<TimeSimulationMode>('REAL_TIME');
+  // Test time: lets us try the hourly check-in at any time of day (saved in this browser).
+  const [timeSimulationMode, setTimeSimulationModeState] = useState<TimeSimulationMode>(() => {
+    try {
+      return (localStorage.getItem('kbtu_ums_time_mode') as TimeSimulationMode) || 'REAL_TIME';
+    } catch {
+      return 'REAL_TIME';
+    }
+  });
+  const setTimeSimulationMode = (mode: TimeSimulationMode) => {
+    setTimeSimulationModeState(mode);
+    try {
+      localStorage.setItem('kbtu_ums_time_mode', mode);
+    } catch {
+      // storage blocked: the choice works until the page is reloaded
+    }
+  };
 
   const checkSessionTime = (sessionId: string): LessonTimeCheck => {
     const session = classSessions.find((s) => s.id === sessionId);
@@ -318,6 +340,76 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   useEffect(() => {
     localStorage.setItem(STORAGE_KEYS.AUDIT, JSON.stringify(auditLogs));
   }, [auditLogs]);
+
+  // ---------------------------------------------------------------------------
+  // Server (PostgreSQL) mode: every-hour tracker.
+  // When VITE_API_URL is set and the server answers, check-ins are saved in the
+  // database and every device sees the same data (refreshed every 4 seconds).
+  // Without a server the website works as before, with data in this browser.
+  // ---------------------------------------------------------------------------
+  const [serverOnline, setServerOnline] = useState(false);
+  const syncing = useRef(false);
+
+  /** Turns a database row into the record format the pages already use. */
+  const fromServer = (r: ServerRecord): AttendanceRecord | null => {
+    const student = USERS.find((u) => u.studentId === r.student_id);
+    const session = CLASS_SESSIONS.find((s) => s.id === r.session_id);
+    if (!student || !session) return null;
+    return {
+      id: `db-${r.attendance_id}`,
+      sessionId: r.session_id,
+      courseCode: session.courseCode,
+      sessionTitle: session.title,
+      sessionNumber: session.sessionNumber,
+      studentId: student.id,
+      studentName: student.fullName,
+      checkInTime: r.check_in_time,
+      gpsLatitude: r.gps_latitude,
+      gpsLongitude: r.gps_longitude,
+      distanceToCenterM: r.distance_to_center_m,
+      verificationStatus: r.verification_status,
+      rejectionReason: r.rejection_reason ?? undefined,
+      isOverride: r.is_override,
+      overrideBy: r.override_by ?? undefined,
+      overrideReason: r.override_reason ?? undefined,
+      hourSlot: r.hour_slot,
+    };
+  };
+
+  const refreshFromServer = useCallback(async () => {
+    if (!isApiConfigured || syncing.current) return;
+    syncing.current = true;
+    try {
+      const [rec, ses] = await Promise.all([attendanceApi.records(), attendanceApi.sessions()]);
+      const records = rec.body.records.map(fromServer).filter((r): r is AttendanceRecord => r !== null);
+      const statusById = new Map(ses.body.sessions.map((x) => [x.session_id, x.status]));
+      setAttendanceRecords(records);
+      setClassSessions((prev) => prev.map((s) => (statusById.has(s.id) ? { ...s, status: statusById.get(s.id)! } : s)));
+      setServerOnline(true);
+    } catch {
+      setServerOnline(false); // server is off: keep showing the data of this browser
+    } finally {
+      syncing.current = false;
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  useEffect(() => {
+    if (!isApiConfigured) return;
+    refreshFromServer();
+    const timer = window.setInterval(refreshFromServer, 4000);
+    return () => window.clearInterval(timer);
+  }, [refreshFromServer]);
+
+  /** Lesson time to send to the server: the clock time now (or the simulated time) on the
+   *  lesson's date. The website checks only the weekday and the time (Mon 16:00-19:00), and
+   *  the sample lesson ses-8 is fixed to 02.11, so the date of the lesson is used.
+   *  This needs ALLOW_DEMO_TIME=true on the server. A real system creates a lesson for
+   *  today and lets the server use its own clock. */
+  const lessonTimeFor = (sessionId: string): string | undefined => {
+    const session = classSessions.find((s) => s.id === sessionId);
+    return session ? `${session.date} ${checkSessionTime(sessionId).currentTime}` : undefined;
+  };
 
   // Lockout countdown timer
   useEffect(() => {
@@ -806,6 +898,45 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     }
   };
 
+  // Check-in through the server when it is online, otherwise the old local check-in
+  const checkInGPSAsync = async (
+    sessionId: string,
+    latitude: number,
+    longitude: number,
+    isDrift: boolean = false,
+    hourSlot?: 1 | 2 | 3
+  ): Promise<CheckInResult> => {
+    if (!serverOnline || !currentUser?.studentId) {
+      return checkInGPS(sessionId, latitude, longitude, isDrift, hourSlot);
+    }
+    try {
+      const { body } = await attendanceApi.checkIn({
+        sessionId,
+        studentId: currentUser.studentId,
+        latitude,
+        longitude,
+        time: lessonTimeFor(sessionId),
+        weakSignal: isDrift || undefined,
+      });
+      const ok = body.status === 'SUCCESS_PRESENT' || body.status === 'MANUAL_REVIEW_SUBMITTED';
+      addAuditLog(
+        ok ? 'GPS_CHECK_IN' : 'CHECK_IN_REJECTED',
+        `[server] ${currentUser.fullName} ${sessionId} hour ${body.hourSlot ?? '-'}: ${body.status}. ${body.message}`,
+        ok ? 'SUCCESS' : 'ERROR'
+      );
+      await refreshFromServer();
+      const known = ['SUCCESS_PRESENT', 'REJECTED_RADIUS', 'REJECTED_NOT_ENROLLED', 'REJECTED_CLOSED', 'ALREADY_CHECKED_IN', 'MANUAL_REVIEW_SUBMITTED'];
+      return {
+        status: (known.includes(body.status) ? body.status : 'REJECTED_CLOSED') as CheckInResult['status'],
+        message: body.message,
+        distanceM: body.distanceM,
+      };
+    } catch {
+      setServerOnline(false);
+      return { status: 'REJECTED_CLOSED', message: 'Сервер недоступен. Попробуйте ещё раз через несколько секунд.' };
+    }
+  };
+
   // Request manual review explicitly
   const requestManualReview = (sessionId: string, reason: string) => {
     if (!currentUser) return;
@@ -821,6 +952,11 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
   // Teacher: Toggle Session Status (OPEN / CLOSED)
   const toggleSessionStatus = (sessionId: string) => {
+    if (serverOnline) {
+      const current = classSessions.find((s) => s.id === sessionId);
+      const next = current?.status === 'OPEN' ? 'CLOSED' : 'OPEN';
+      attendanceApi.setSessionStatus(sessionId, next).then(refreshFromServer).catch(() => setServerOnline(false));
+    }
     setClassSessions((prev) =>
       prev.map((s) => {
         if (s.id === sessionId) {
@@ -853,6 +989,23 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
           'ERROR'
         );
         return;
+      }
+    }
+
+    if (serverOnline && record) {
+      const student = USERS.find((u) => u.id === record.studentId);
+      if (student?.studentId) {
+        attendanceApi
+          .override({
+            sessionId: record.sessionId,
+            studentId: student.studentId,
+            hourSlot: record.hourSlot || 1,
+            status: newStatus,
+            reason,
+            teacher: currentUser?.fullName || 'Instructor',
+          })
+          .then(refreshFromServer)
+          .catch(() => setServerOnline(false));
       }
     }
 
@@ -919,6 +1072,20 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       overrideReason: reason,
     };
 
+    if (serverOnline && student.studentId) {
+      attendanceApi
+        .override({
+          sessionId: session.id,
+          studentId: student.studentId,
+          hourSlot,
+          status,
+          reason,
+          teacher: currentUser?.fullName || 'Ainur Issabek',
+        })
+        .then(refreshFromServer)
+        .catch(() => setServerOnline(false));
+    }
+
     setAttendanceRecords((prev) => [newRecord, ...prev]);
     addAuditLog(
       'MANUAL_OVERRIDE',
@@ -968,6 +1135,10 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         changePassword,
         logout,
         checkInGPS,
+        checkInGPSAsync,
+        serverOnline,
+        isApiConfigured,
+        refreshFromServer,
         requestManualReview,
         toggleSessionStatus,
         overrideAttendance,
