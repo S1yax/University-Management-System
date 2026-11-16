@@ -69,6 +69,35 @@ export function calculateHaversineDistance(
   return Math.round(distance * 10) / 10; // rounded to 1 decimal place
 }
 
+// GPS accuracy (meters) worse than this is treated as a weak signal
+export const WEAK_ACCURACY_THRESHOLD_M = 100;
+
+/**
+ * True when the device reports an accuracy worse than the threshold.
+ * Unknown accuracy (undefined / not a number) is not treated as weak.
+ */
+export function isWeakAccuracy(
+  accuracyM: number | undefined,
+  thresholdM: number = WEAK_ACCURACY_THRESHOLD_M
+): boolean {
+  if (accuracyM === undefined || !Number.isFinite(accuracyM)) return false;
+  return accuracyM > thresholdM;
+}
+
+/**
+ * A weak-signal check-in goes to manual review only if the accuracy circle
+ * still reaches the campus radius. A student far away with a huge accuracy
+ * value (e.g. IP-based location) is not sent to review.
+ */
+export function shouldReviewWeakGps(
+  distanceM: number,
+  accuracyM: number | undefined,
+  radiusM: number = KBTU_HALL_301_COORDS.allowedRadiusM
+): boolean {
+  if (!isWeakAccuracy(accuracyM)) return false;
+  return distanceM - (accuracyM as number) <= radiusM;
+}
+
 /**
  * Formats distance nicely (e.g. "4.2 m" or "1.25 km")
  */

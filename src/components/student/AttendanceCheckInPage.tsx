@@ -22,6 +22,7 @@ import {
   formatDistance,
   KBTU_HALL_301_COORDS,
   calculateHaversineDistance,
+  shouldReviewWeakGps,
 } from '../../utils/geo';
 import { CampusMap } from '../common/CampusMap';
 
@@ -105,6 +106,9 @@ export const AttendanceCheckInPage: React.FC = () => {
   const allowedRadiusM = activeSession?.allowedCampusRadiusM || KBTU_HALL_301_COORDS.allowedRadiusM;
   const isWithinRadius = currentDistanceM <= allowedRadiusM;
   const isDriftMode = studentCoords.source === 'DRIFT';
+  // Weak real-device GPS near the campus goes to manual review instead of rejection
+  const isWeakSignal =
+    isDriftMode || shouldReviewWeakGps(currentDistanceM, studentCoords.accuracy, allowedRadiusM);
 
   // Synchronize existing status if student already has a record for the current active hour
   useEffect(() => {
@@ -192,7 +196,7 @@ export const AttendanceCheckInPage: React.FC = () => {
     }
 
     // Check geofence condition
-    if (!isWithinRadius && !forceAttempt && !isDriftMode) {
+    if (!isWithinRadius && !forceAttempt && !isWeakSignal) {
       setCheckInResult({
         type: 'REJECTED',
         message: `Дистанция ${formatDistance(currentDistanceM)} находится вне допустимого радиуса кампуса (${allowedRadiusM} м). Отметка заблокирована.`,
@@ -209,7 +213,7 @@ export const AttendanceCheckInPage: React.FC = () => {
         activeSession.id,
         studentCoords.lat,
         studentCoords.lng,
-        isDriftMode,
+        isWeakSignal,
         activeHourSlot
       );
       processCheckInResult(result);
