@@ -255,9 +255,19 @@ export const TopBar: React.FC<TopBarProps> = ({ onToggleMobileSidebar, pageTitle
                 </div>
               </div>
 
-              {/* Logout Option */}
-                            {/* Account actions */}
+              {/* Account actions */}
               <div className="pt-1">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setShowUserDropdown(false);
+                    setActivePath('profile');
+                  }}
+                  className="w-full px-4 py-2 text-left text-xs font-semibold text-[#0F1F3D] hover:bg-[#E8F0FE] flex items-center gap-2 transition-colors"
+                >
+                  <UserCheck className="w-4 h-4 text-[#0B3D91]" />
+                  My profile
+                </button>
                 <button
                   type="button"
                   onClick={() => {

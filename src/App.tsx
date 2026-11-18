@@ -1,9 +1,11 @@
 import React, { useState } from 'react';
+import { canAccess } from './utils/rbac';
 import { useApp } from './context/AppContext';
 import { LoginPage } from './components/auth/LoginPage';
 import { TopBar } from './components/layout/TopBar';
 import { Sidebar } from './components/layout/Sidebar';
 import { StudentDashboard } from './components/student/StudentDashboard';
+import { ProfilePage } from './components/profile/ProfilePage';
 import { AttendanceCheckInPage } from './components/student/AttendanceCheckInPage';
 import { TeacherDashboard } from './components/teacher/TeacherDashboard';
 import { LiveAttendancePage } from './components/teacher/LiveAttendancePage';
@@ -37,14 +39,14 @@ import {
   ApplicationsPage,
   SystemSettingsPage,
 } from './components/pages/AdditionalPages';
-import { UserRole } from './types';
 
 export const App: React.FC = () => {
-  const { currentUser, activePath, setActivePath, t, authReady, passwordChangeInfo } = useApp();  const [isMobileSidebarOpen, setIsMobileSidebarOpen] = useState(false);
+  const { currentUser, activePath, setActivePath, t, authReady, passwordChangeInfo } = useApp();
+  const [isMobileSidebarOpen, setIsMobileSidebarOpen] = useState(false);
 
-  // If not logged in, show University Portal Login
-  if (!currentUser) {
-    return <LoginPage />;
+  // A remembered device is being checked: show nothing instead of flashing the login page
+  if (!authReady) {
+    return null;
   }
 
   // If not logged in, show University Portal Login
@@ -61,57 +63,8 @@ export const App: React.FC = () => {
     );
   }
 
-  // Allowed paths mapping per role
-  const allowedPathsByRole: Record<UserRole, string[]> = {
-    STUDENT: [
-      'dashboard',
-      'my-courses',
-      'attendance-checkin',
-      'schedule',
-      'grades-transcript',
-      'course-registration',
-      'messages',
-      'teacher-ratings',
-      'news',
-    ],
-    TEACHER: [
-      'dashboard',
-      'my-courses',
-      'live-attendance',
-      'gradebook',
-      'lessons',
-      'students',
-      'research',
-      'messages',
-      'news',
-    ],
-    MANAGER: [
-      'dashboard',
-      'courses',
-      'enrollments',
-      'at-risk-attendance',
-      'performance-reports',
-      'mentors',
-      'messages',
-      'news',
-    ],
-    ADMIN: [
-      'dashboard',
-      'users',
-      'roles-permissions',
-      'audit-log',
-      'courses',
-      'applications',
-      'system-settings',
-    ],
-  };
-
-  const sharedProjectPaths = ['database-erd', 'team-39', 'project-status', 'change-password'];
-
-  const isAllowed =
-    sharedProjectPaths.includes(activePath) ||
-    (allowedPathsByRole[currentUser.role] &&
-      allowedPathsByRole[currentUser.role].includes(activePath));
+  
+  const isAllowed = canAccess(currentUser.role, activePath);
 
   // Determine current page title
   const getPageTitle = (path: string) => {
@@ -172,6 +125,8 @@ export const App: React.FC = () => {
         return t('projectStatus');
       case 'change-password':
         return 'Change password';
+      case 'profile':
+        return 'My profile';
       default:
         return t('dashboard');
     }
@@ -188,6 +143,7 @@ export const App: React.FC = () => {
     if (activePath === 'team-39') return <Team39Page />;
     if (activePath === 'project-status') return <ProjectStatusPage />;
     if (activePath === 'change-password') return <ChangePasswordPage />;
+    if (activePath === 'profile') return <ProfilePage />;
 
     // Role-specific routing
     switch (activePath) {
