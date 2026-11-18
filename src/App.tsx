@@ -39,6 +39,25 @@ import {
   ApplicationsPage,
   SystemSettingsPage,
 } from './components/pages/AdditionalPages';
+import {
+  JournalPage,
+  SyllabusPage,
+  AttestationPage,
+  CourseMaterialsPage,
+  ExamSchedulePage,
+  DisciplineSchedulePage,
+  FinancialCabinetPage,
+  BillingPage,
+  ScheduleCreationPage,
+  AddDropPage,
+  RequestsPage,
+  SurveysPage,
+  EntryTestsPage,
+  MobilityPage,
+  DormitoryPage,
+  UserProfilePage,
+  FilesPage,
+} from './components/pages/UninetPages';
 
 export const App: React.FC = () => {
   const { currentUser, activePath, setActivePath, t, authReady, passwordChangeInfo } = useApp();
@@ -63,7 +82,6 @@ export const App: React.FC = () => {
     );
   }
 
-  
   const isAllowed = canAccess(currentUser.role, activePath);
 
   // Determine current page title
@@ -123,6 +141,42 @@ export const App: React.FC = () => {
         return t('team39');
       case 'project-status':
         return t('projectStatus');
+      case 'transcript':
+        return 'Transcript';
+      case 'journal':
+        return 'Academic Journal & GPS Attendance';
+      case 'syllabus':
+        return 'Course Syllabus';
+      case 'attestation':
+        return 'Attestation & Grade Points';
+      case 'course-materials':
+        return 'Course Materials';
+      case 'exam-schedule':
+        return 'Exam Schedule';
+      case 'discipline-schedule':
+        return 'Discipline Schedule';
+      case 'financial-cabinet':
+        return 'Financial Cabinet';
+      case 'billing':
+        return 'Billing & Invoices';
+      case 'schedule-creation':
+        return 'Schedule Creation';
+      case 'add-drop':
+        return 'Add/Drop Period';
+      case 'requests':
+        return 'Requests & Student Services';
+      case 'surveys':
+        return 'Surveys & Evaluations';
+      case 'entry-tests':
+        return 'Entry tests';
+      case 'mobility':
+        return 'Academic Mobility';
+      case 'dormitory':
+        return 'Dormitory (House #1 & #2)';
+      case 'user-profile':
+        return 'User profile';
+      case 'files':
+        return 'Files Storage';
       case 'change-password':
         return 'Change password';
       case 'profile':
@@ -198,6 +252,44 @@ export const App: React.FC = () => {
         return <ApplicationsPage />;
       case 'system-settings':
         return <SystemSettingsPage />;
+
+      // Uninet Pages
+      case 'transcript':
+        return <GradesTranscriptPage />;
+      case 'journal':
+        return <JournalPage />;
+      case 'syllabus':
+        return <SyllabusPage />;
+      case 'attestation':
+        return <AttestationPage />;
+      case 'course-materials':
+        return <CourseMaterialsPage />;
+      case 'exam-schedule':
+        return <ExamSchedulePage />;
+      case 'discipline-schedule':
+        return <DisciplineSchedulePage />;
+      case 'financial-cabinet':
+        return <FinancialCabinetPage />;
+      case 'billing':
+        return <BillingPage />;
+      case 'schedule-creation':
+        return <ScheduleCreationPage />;
+      case 'add-drop':
+        return <AddDropPage />;
+      case 'requests':
+        return <RequestsPage />;
+      case 'surveys':
+        return <SurveysPage />;
+      case 'entry-tests':
+        return <EntryTestsPage />;
+      case 'mobility':
+        return <MobilityPage />;
+      case 'dormitory':
+        return <DormitoryPage />;
+      case 'user-profile':
+        return <UserProfilePage />;
+      case 'files':
+        return <FilesPage />;
 
       // Shared secondary pages
       case 'my-courses':

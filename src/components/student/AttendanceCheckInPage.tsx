@@ -13,33 +13,31 @@ import {
   Navigation,
   Send,
   ShieldAlert,
-  Smartphone,
   LocateFixed,
   Crosshair,
   Lock,
-  RotateCcw,
   Calendar,
 } from 'lucide-react';
 import {
-  SIMULATION_PRESETS,
   formatDistance,
   KBTU_HALL_301_COORDS,
   calculateHaversineDistance,
+  shouldReviewWeakGps,
 } from '../../utils/geo';
 import { CampusMap } from '../common/CampusMap';
+import { DataSourceBadge } from '../common/DataSourceBadge';
+import { TestTimePicker } from '../common/TestTimePicker';
 
 export const AttendanceCheckInPage: React.FC = () => {
   const {
     currentUser,
     classSessions,
     attendanceRecords,
-    checkInGPS,
+    checkInGPSAsync,
     requestManualReview,
     getStudentAttendanceRate,
     courses,
     t,
-    timeSimulationMode,
-    setTimeSimulationMode,
     checkSessionTime,
   } = useApp();
 
@@ -64,7 +62,7 @@ export const AttendanceCheckInPage: React.FC = () => {
   const currentHourRecord = activeHourSlot === 1 ? hour1Record : activeHourSlot === 2 ? hour2Record : hour3Record;
   const existingRecord = currentHourRecord;
 
-  // User's current location state (supports real browser GPS or simulation presets)
+  // User's current location state (Real browser device GPS)
   const [studentCoords, setStudentCoords] = useState<{
     lat: number;
     lng: number;
@@ -72,11 +70,11 @@ export const AttendanceCheckInPage: React.FC = () => {
     source: 'REAL_BROWSER' | 'INSIDE' | 'OUTSIDE' | 'DRIFT';
     sourceLabel: string;
   }>({
-    lat: SIMULATION_PRESETS.INSIDE.lat,
-    lng: SIMULATION_PRESETS.INSIDE.lng,
-    accuracy: SIMULATION_PRESETS.INSIDE.accuracy,
-    source: 'INSIDE',
-    sourceLabel: 'Демо: Внутри Hall 301',
+    lat: KBTU_HALL_301_COORDS.lat,
+    lng: KBTU_HALL_301_COORDS.lng,
+    accuracy: 15,
+    source: 'REAL_BROWSER',
+    sourceLabel: 'GPS устройства',
   });
 
   const [mapView, setMapView] = useState<'LEAFLET' | 'ALMATY_SCHEMATIC' | 'RADAR'>('LEAFLET');
@@ -110,6 +108,9 @@ export const AttendanceCheckInPage: React.FC = () => {
   const allowedRadiusM = activeSession?.allowedCampusRadiusM || KBTU_HALL_301_COORDS.allowedRadiusM;
   const isWithinRadius = currentDistanceM <= allowedRadiusM;
   const isDriftMode = studentCoords.source === 'DRIFT';
+  // Weak real-device GPS near the campus goes to manual review instead of rejection
+  const isWeakSignal =
+    isDriftMode || shouldReviewWeakGps(currentDistanceM, studentCoords.accuracy, allowedRadiusM);
 
   // Synchronize existing status if student already has a record for the current active hour
   useEffect(() => {
@@ -144,13 +145,12 @@ export const AttendanceCheckInPage: React.FC = () => {
   // Request real device GPS from browser
   const handleDetectRealGps = () => {
     if (!('geolocation' in navigator)) {
-      setGpsErrorMsg('Геолокация не поддерживается вашим браузером.');
+      setGpsErrorMsg('Геолокация не поддерживается вашим устройством или браузером.');
       return;
     }
 
     setIsDetectingGps(true);
     setGpsErrorMsg(null);
-    setCheckInResult(null);
 
     navigator.geolocation.getCurrentPosition(
       (pos) => {
@@ -165,13 +165,13 @@ export const AttendanceCheckInPage: React.FC = () => {
       },
       (err) => {
         setIsDetectingGps(false);
-        let msg = 'Не удалось получить GPS-координаты.';
+        let msg = 'Не удалось получить GPS-координаты устройства.';
         if (err.code === err.PERMISSION_DENIED) {
-          msg = 'Доступ к геолокации запрещен в браузере. Разрешите доступ или выберите тестовый пресет ниже.';
+          msg = 'Доступ к геолокации запрещен. Пожалуйста, разрешите доступ к местоположению в настройках браузера.';
         } else if (err.code === err.POSITION_UNAVAILABLE) {
           msg = 'Датчик геолокации недоступен на вашем устройстве.';
         } else if (err.code === err.TIMEOUT) {
-          msg = 'Время запроса GPS истекло. Попробуйте еще раз.';
+          msg = 'Время запроса GPS истекло. Нажмите «Обновить GPS», чтобы повторить.';
         }
         setGpsErrorMsg(msg);
       },
@@ -179,19 +179,10 @@ export const AttendanceCheckInPage: React.FC = () => {
     );
   };
 
-  // Switch simulation presets
-  const handleSelectPreset = (mode: 'INSIDE' | 'OUTSIDE' | 'DRIFT') => {
-    const preset = SIMULATION_PRESETS[mode];
-    setGpsErrorMsg(null);
-    setCheckInResult(null);
-    setStudentCoords({
-      lat: preset.lat,
-      lng: preset.lng,
-      accuracy: preset.accuracy,
-      source: mode,
-      sourceLabel: preset.name,
-    });
-  };
+  // Automatically request GPS when student opens the check-in page
+  useEffect(() => {
+    handleDetectRealGps();
+  }, []);
 
   // Perform GPS Check-in verification
   const handlePerformCheckIn = (forceAttempt: boolean = false) => {
@@ -207,7 +198,7 @@ export const AttendanceCheckInPage: React.FC = () => {
     }
 
     // Check geofence condition
-    if (!isWithinRadius && !forceAttempt && !isDriftMode) {
+    if (!isWithinRadius && !forceAttempt && !isWeakSignal) {
       setCheckInResult({
         type: 'REJECTED',
         message: `Дистанция ${formatDistance(currentDistanceM)} находится вне допустимого радиуса кампуса (${allowedRadiusM} м). Отметка заблокирована.`,
@@ -218,17 +209,16 @@ export const AttendanceCheckInPage: React.FC = () => {
 
     setIsLocating(true);
 
-    setTimeout(() => {
-      setIsLocating(false);
-      const result = checkInGPS(
-        activeSession.id,
-        studentCoords.lat,
-        studentCoords.lng,
-        isDriftMode,
-        activeHourSlot
-      );
-      processCheckInResult(result);
-    }, 400);
+    // Saved on the server (PostgreSQL) when it is online, otherwise in this browser
+    checkInGPSAsync(
+      activeSession.id,
+      studentCoords.lat,
+      studentCoords.lng,
+      isWeakSignal,
+      activeHourSlot
+    )
+      .then(processCheckInResult)
+      .finally(() => setIsLocating(false));
   };
 
   const processCheckInResult = (result: any) => {
@@ -259,25 +249,6 @@ export const AttendanceCheckInPage: React.FC = () => {
         distance: result.distanceM,
       });
     }
-  };
-
-  // Reset check-in in local storage for testing multiple times
-  const handleResetForTesting = () => {
-    if (!activeSession || !currentUser) return;
-    const saved = localStorage.getItem('kbtu_ums_attendance');
-    if (saved) {
-      try {
-        const records = JSON.parse(saved);
-        const filtered = records.filter(
-          (r: any) => !(r.sessionId === activeSession.id && r.studentId === currentUser.id)
-        );
-        localStorage.setItem('kbtu_ums_attendance', JSON.stringify(filtered));
-      } catch {
-        // ignore
-      }
-    }
-    setCheckInResult(null);
-    window.location.reload();
   };
 
   const handleSendManualReview = (e: React.FormEvent) => {
@@ -338,6 +309,12 @@ export const AttendanceCheckInPage: React.FC = () => {
           <p className="text-xs sm:text-sm text-blue-100 mt-1">
             {activeSession?.title}
           </p>
+          <div className="mt-2">
+            <div className="flex flex-wrap items-center gap-2">
+              <DataSourceBadge />
+              <TestTimePicker />
+            </div>
+          </div>
 
           <div className="mt-4 pt-4 border-t border-white/20 grid grid-cols-1 sm:grid-cols-3 gap-3 text-xs">
             <div className="flex items-center gap-2">
@@ -532,99 +509,6 @@ export const AttendanceCheckInPage: React.FC = () => {
                 </div>
               </div>
             </div>
-
-            {/* Quick Time Simulator for testing 3 hours */}
-            <div className="pt-2 border-t border-[#D6E2F5] space-y-2">
-              <div className="flex items-center justify-between">
-                <span className="text-[11px] font-bold text-slate-600 flex items-center gap-1.5">
-                  <Clock className="w-3.5 h-3.5 text-[#0B3D91]" />
-                  <span>Симуляция времени урока для тестирования каждого часа:</span>
-                </span>
-                <span className="text-[11px] font-semibold text-[#0B3D91]">
-                  Сейчас: {sessionTimeStatus.currentDay} {sessionTimeStatus.currentTime}
-                </span>
-              </div>
-
-              <div className="grid grid-cols-2 sm:grid-cols-6 gap-1.5">
-                <button
-                  type="button"
-                  onClick={() => setTimeSimulationMode('DURING_LESSON_H1')}
-                  className={`px-2 py-1.5 rounded-lg border text-center transition-all cursor-pointer ${
-                    timeSimulationMode === 'DURING_LESSON_H1' || (timeSimulationMode === 'DURING_LESSON' && activeHourSlot === 1)
-                      ? 'border-[#0B3D91] bg-white ring-2 ring-[#0B3D91]/20 font-bold text-[#0B3D91]'
-                      : 'border-[#D6E2F5] bg-white text-slate-600 hover:bg-slate-50'
-                  }`}
-                >
-                  <div className="text-[11px] font-bold">Час 1</div>
-                  <div className="text-[9px] text-slate-500">16:25</div>
-                </button>
-
-                <button
-                  type="button"
-                  onClick={() => setTimeSimulationMode('DURING_LESSON_H2')}
-                  className={`px-2 py-1.5 rounded-lg border text-center transition-all cursor-pointer ${
-                    timeSimulationMode === 'DURING_LESSON_H2'
-                      ? 'border-[#0B3D91] bg-white ring-2 ring-[#0B3D91]/20 font-bold text-[#0B3D91]'
-                      : 'border-[#D6E2F5] bg-white text-slate-600 hover:bg-slate-50'
-                  }`}
-                >
-                  <div className="text-[11px] font-bold">Час 2</div>
-                  <div className="text-[9px] text-slate-500">17:25</div>
-                </button>
-
-                <button
-                  type="button"
-                  onClick={() => setTimeSimulationMode('DURING_LESSON_H3')}
-                  className={`px-2 py-1.5 rounded-lg border text-center transition-all cursor-pointer ${
-                    timeSimulationMode === 'DURING_LESSON_H3'
-                      ? 'border-[#0B3D91] bg-white ring-2 ring-[#0B3D91]/20 font-bold text-[#0B3D91]'
-                      : 'border-[#D6E2F5] bg-white text-slate-600 hover:bg-slate-50'
-                  }`}
-                >
-                  <div className="text-[11px] font-bold">Час 3</div>
-                  <div className="text-[9px] text-slate-500">18:25</div>
-                </button>
-
-                <button
-                  type="button"
-                  onClick={() => setTimeSimulationMode('BEFORE_LESSON')}
-                  className={`px-2 py-1.5 rounded-lg border text-center transition-all cursor-pointer ${
-                    timeSimulationMode === 'BEFORE_LESSON'
-                      ? 'border-amber-600 bg-white ring-2 ring-amber-600/20 font-bold text-amber-700'
-                      : 'border-[#D6E2F5] bg-white text-slate-600 hover:bg-slate-50'
-                  }`}
-                >
-                  <div className="text-[11px] font-bold">До урока</div>
-                  <div className="text-[9px] text-slate-500">15:15</div>
-                </button>
-
-                <button
-                  type="button"
-                  onClick={() => setTimeSimulationMode('AFTER_LESSON')}
-                  className={`px-2 py-1.5 rounded-lg border text-center transition-all cursor-pointer ${
-                    timeSimulationMode === 'AFTER_LESSON'
-                      ? 'border-red-600 bg-white ring-2 ring-red-600/20 font-bold text-red-700'
-                      : 'border-[#D6E2F5] bg-white text-slate-600 hover:bg-slate-50'
-                  }`}
-                >
-                  <div className="text-[11px] font-bold">После</div>
-                  <div className="text-[9px] text-slate-500">19:45</div>
-                </button>
-
-                <button
-                  type="button"
-                  onClick={() => setTimeSimulationMode('REAL_TIME')}
-                  className={`px-2 py-1.5 rounded-lg border text-center transition-all cursor-pointer ${
-                    timeSimulationMode === 'REAL_TIME'
-                      ? 'border-[#0B3D91] bg-white ring-2 ring-[#0B3D91]/20 font-bold text-[#0B3D91]'
-                      : 'border-[#D6E2F5] bg-white text-slate-600 hover:bg-slate-50'
-                  }`}
-                >
-                  <div className="text-[11px] font-bold">Часы ПК</div>
-                  <div className="text-[9px] text-slate-500">Реальное</div>
-                </button>
-              </div>
-            </div>
           </div>
 
           {/* GEOLOCATION COMPARISON & GEOFENCE VALIDATOR PANEL */}
@@ -709,8 +593,8 @@ export const AttendanceCheckInPage: React.FC = () => {
                 </div>
                 <div className="text-xs text-slate-600">
                   {studentCoords.source === 'REAL_BROWSER'
-                    ? 'Считано с датчика GPS браузера'
-                    : 'Тестовый пресет симуляции'}
+                    ? 'Считано с датчика GPS устройства'
+                    : 'Определено браузером'}
                 </div>
                 <div className="font-mono text-xs font-semibold text-[#0F1F3D] pt-1">
                   Широта: <span className="text-slate-800">{studentCoords.lat.toFixed(6)}°</span>
@@ -796,81 +680,43 @@ export const AttendanceCheckInPage: React.FC = () => {
           </div>
 
           {/* MAIN CHECK-IN ACTION BUTTON & STATUS */}
-          <div className="flex flex-col items-center justify-center text-center space-y-4 pt-2">
+          <div className="flex flex-col items-center justify-center text-center space-y-3 pt-2">
             {!sessionTimeStatus.active ? (
-              // Case A: OUTSIDE SCHEDULED LESSON TIME (Monday 16:00 - 19:00) -> STRICTLY BLOCKED BY TIME!
-              <div className="w-full max-w-lg space-y-2.5">
+              // Case A: OUTSIDE SCHEDULED LESSON TIME -> STRICTLY BLOCKED BY TIME!
+              <div className="w-full max-w-lg space-y-2">
                 <button
                   type="button"
                   disabled={true}
-                  className="w-full h-16 rounded-2xl bg-slate-200 border-2 border-amber-400 text-amber-900 font-bold text-sm sm:text-base flex items-center justify-center gap-2.5 cursor-not-allowed shadow-inner"
+                  className="w-full h-14 rounded-2xl bg-slate-200 border-2 border-amber-400 text-amber-900 font-bold text-sm sm:text-base flex items-center justify-center gap-2.5 cursor-not-allowed shadow-inner"
                   title="Отметка невозможна: урок проводится только по понедельникам с 16:00 до 19:00"
                 >
                   <Clock className="w-5 h-5 text-amber-700 shrink-0" />
                   <span>Чек-ин заблокирован по времени (Урок: Пн 16:00–19:00)</span>
                 </button>
-                <div className="flex flex-wrap items-center justify-between text-[11px] text-slate-500 px-2 gap-2">
-                  <span className="text-amber-800 font-semibold">{sessionTimeStatus.reason}</span>
-                  <div className="flex items-center gap-3">
-                    <button
-                      type="button"
-                      onClick={() => handlePerformCheckIn(true)}
-                      className="text-amber-700 hover:underline font-semibold cursor-pointer"
-                    >
-                      Тест отказа: отправить попытку
-                    </button>
-                    {existingRecord && (
-                      <button
-                        type="button"
-                        onClick={handleResetForTesting}
-                        className="text-[#0B3D91] hover:underline font-semibold flex items-center gap-1 cursor-pointer"
-                      >
-                        <RotateCcw className="w-3 h-3" />
-                        <span>Сброс</span>
-                      </button>
-                    )}
-                  </div>
-                </div>
+                <p className="text-[11px] text-amber-800 font-semibold text-center">
+                  {sessionTimeStatus.reason}
+                </p>
               </div>
             ) : !isWithinRadius ? (
               // Case B: INSIDE LESSON TIME, BUT OUTSIDE CAMPUS RADIUS (>150m) -> STRICTLY BLOCKED BY GPS!
-              <div className="w-full max-w-lg space-y-2.5">
+              <div className="w-full max-w-lg space-y-2">
                 <button
                   type="button"
                   disabled={true}
-                  className="w-full h-16 rounded-2xl bg-slate-200 border-2 border-rose-400 text-rose-800 font-bold text-sm sm:text-base flex items-center justify-center gap-2.5 cursor-not-allowed shadow-inner"
+                  className="w-full h-14 rounded-2xl bg-slate-200 border-2 border-rose-400 text-rose-800 font-bold text-sm sm:text-base flex items-center justify-center gap-2.5 cursor-not-allowed shadow-inner"
                   title="Отметка невозможна: вы находитесь за пределами радиуса 150 м от КБТУ"
                 >
                   <Lock className="w-5 h-5 text-rose-600 shrink-0" />
                   <span>Чек-ин заблокирован (Вне зоны 150м: {formatDistance(currentDistanceM)})</span>
                 </button>
-                <div className="flex flex-wrap items-center justify-between text-[11px] text-slate-500 px-2 gap-2">
-                  <span className="text-rose-700 font-semibold">Посещаемость не принимается вне кампуса</span>
-                  <div className="flex items-center gap-3">
-                    <button
-                      type="button"
-                      onClick={() => handlePerformCheckIn(true)}
-                      className="text-rose-600 hover:underline font-semibold cursor-pointer"
-                    >
-                      Тест отказа: отправить попытку (будет REJECTED)
-                    </button>
-                    {existingRecord && (
-                      <button
-                        type="button"
-                        onClick={handleResetForTesting}
-                        className="text-[#0B3D91] hover:underline font-semibold flex items-center gap-1 cursor-pointer"
-                      >
-                        <RotateCcw className="w-3 h-3" />
-                        <span>Сброс</span>
-                      </button>
-                    )}
-                  </div>
-                </div>
+                <p className="text-[11px] text-rose-700 font-semibold text-center">
+                  Посещаемость не принимается вне территории кампуса КБТУ (радиус 150 м)
+                </p>
               </div>
             ) : existingRecord?.verificationStatus === 'PRESENT' ? (
               // Case C: ALREADY CHECKED IN SUCCESSFULLY FOR THIS HOUR
-              <div className="flex flex-col items-center gap-2">
-                <div className="w-full sm:w-[420px] h-16 rounded-2xl bg-emerald-600 text-white font-bold text-sm sm:text-base flex items-center justify-center gap-2.5 shadow-md shadow-emerald-700/20 px-4">
+              <div className="flex flex-col items-center gap-1.5">
+                <div className="w-full sm:w-[420px] h-14 rounded-2xl bg-emerald-600 text-white font-bold text-sm sm:text-base flex items-center justify-center gap-2.5 shadow-md shadow-emerald-700/20 px-4">
                   <CheckCircle2 className="w-6 h-6 shrink-0" />
                   <span>Час {activeHourSlot} подтвержден ({[hour1Record, hour2Record, hour3Record].filter(r => r?.verificationStatus === 'PRESENT').length}/3 отметок)</span>
                 </div>
@@ -879,48 +725,30 @@ export const AttendanceCheckInPage: React.FC = () => {
                     ? `Следующая отметка откроется в Час ${activeHourSlot + 1} (${activeHourSlot === 1 ? 'с 17:00' : 'с 18:00'})`
                     : 'Все 3 часа 3-часового занятия успешно подтверждены!'}
                 </p>
-                <button
-                  type="button"
-                  onClick={handleResetForTesting}
-                  className="text-xs text-[#0B3D91] hover:underline font-semibold flex items-center gap-1.5 cursor-pointer pt-1"
-                >
-                  <RotateCcw className="w-3.5 h-3.5" />
-                  <span>Сбросить отметку для повторного тестирования сценариев</span>
-                </button>
               </div>
             ) : (
               // Case D: DURING LESSON TIME AND WITHIN CAMPUS RADIUS -> ALLOWED TO CHECK-IN FOR THIS HOUR!
-              <div className="flex flex-col items-center gap-2">
+              <div className="flex flex-col items-center gap-1.5">
                 <button
                   type="button"
                   onClick={() => handlePerformCheckIn(false)}
                   disabled={isLocating}
-                  className="w-full sm:w-[420px] h-16 rounded-2xl bg-[#0B3D91] hover:bg-[#0A3278] active:bg-[#072458] text-white font-bold text-sm sm:text-base flex items-center justify-center gap-3 transition-all shadow-md shadow-blue-900/20 active:scale-[0.98] disabled:opacity-60 cursor-pointer px-4"
+                  className="w-full sm:w-[420px] h-14 rounded-2xl bg-[#0B3D91] hover:bg-[#0A3278] active:bg-[#072458] text-white font-bold text-sm sm:text-base flex items-center justify-center gap-3 transition-all shadow-md shadow-blue-900/20 active:scale-[0.98] disabled:opacity-60 cursor-pointer px-4"
                 >
                   {isLocating ? (
                     <>
-                      <div className="w-6 h-6 border-3 border-white/30 border-t-white rounded-full animate-spin" />
+                      <div className="w-5 h-5 border-2 border-white/30 border-t-white rounded-full animate-spin" />
                       <span>Проверка координат и регистрация...</span>
                     </>
                   ) : (
                     <>
-                      <Navigation className="w-6 h-6 animate-bounce" />
+                      <Navigation className="w-5 h-5 animate-bounce" />
                       <span>
                         Отметиться за Час {activeHourSlot} ({activeHourSlot === 1 ? '16:00–17:00' : activeHourSlot === 2 ? '17:00–18:00' : '18:00–19:00'})
                       </span>
                     </>
                   )}
                 </button>
-                {([hour1Record, hour2Record, hour3Record].some(Boolean)) && (
-                  <button
-                    type="button"
-                    onClick={handleResetForTesting}
-                    className="text-xs text-[#0B3D91] hover:underline font-semibold flex items-center gap-1.5 cursor-pointer pt-1"
-                  >
-                    <RotateCcw className="w-3.5 h-3.5" />
-                    <span>Сбросить отметку для теста</span>
-                  </button>
-                )}
               </div>
             )}
 
@@ -1210,183 +1038,6 @@ export const AttendanceCheckInPage: React.FC = () => {
                 </div>
               </div>
             )}
-          </div>
-
-          {/* DEV / DEMO LOCATION & TIME SIMULATOR CONTROLS */}
-          <div className="space-y-3">
-            {/* 1. Time Window Switcher (Monday 16:00 - 19:00 / с 4 до 7) */}
-            <div className="p-4 bg-[#F5F8FD] border border-[#D6E2F5] rounded-xl space-y-2.5">
-              <div className="flex items-center justify-between">
-                <div className="flex items-center gap-2">
-                  <Clock className="w-4 h-4 text-[#0B3D91]" />
-                  <span className="text-xs font-bold text-[#0F1F3D]">
-                    Симулятор времени урока (Расписание: Понедельник 16:00 – 19:00 / с 4 до 7):
-                  </span>
-                </div>
-                <span className="text-[11px] text-slate-500">
-                  Текущий режим: <strong>{sessionTimeStatus.currentDay} {sessionTimeStatus.currentTime}</strong>
-                </span>
-              </div>
-
-              <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
-                <button
-                  type="button"
-                  onClick={() => setTimeSimulationMode('DURING_LESSON')}
-                  className={`p-2.5 rounded-lg border text-left transition-all cursor-pointer ${
-                    timeSimulationMode === 'DURING_LESSON'
-                      ? 'border-[#0B3D91] bg-white ring-2 ring-[#0B3D91]/20 shadow-xs'
-                      : 'border-[#D6E2F5] bg-white/70 hover:bg-white text-slate-600'
-                  }`}
-                >
-                  <div className="flex items-center justify-between">
-                    <span className="text-xs font-bold text-emerald-700">Во время урока</span>
-                    <span className="text-[10px] font-semibold text-emerald-700 bg-emerald-50 px-1.5 py-0.5 rounded">
-                      Пн 16:30
-                    </span>
-                  </div>
-                  <p className="text-[11px] text-slate-500 mt-0.5">
-                    Урок идет • Чек-ин открыт
-                  </p>
-                </button>
-
-                <button
-                  type="button"
-                  onClick={() => setTimeSimulationMode('BEFORE_LESSON')}
-                  className={`p-2.5 rounded-lg border text-left transition-all cursor-pointer ${
-                    timeSimulationMode === 'BEFORE_LESSON'
-                      ? 'border-amber-600 bg-white ring-2 ring-amber-600/20 shadow-xs'
-                      : 'border-[#D6E2F5] bg-white/70 hover:bg-white text-slate-600'
-                  }`}
-                >
-                  <div className="flex items-center justify-between">
-                    <span className="text-xs font-bold text-amber-700">До урока</span>
-                    <span className="text-[10px] font-semibold text-amber-700 bg-amber-50 px-1.5 py-0.5 rounded">
-                      Пн 15:15
-                    </span>
-                  </div>
-                  <p className="text-[11px] text-slate-500 mt-0.5">
-                    До 16:00 • Заблокировано
-                  </p>
-                </button>
-
-                <button
-                  type="button"
-                  onClick={() => setTimeSimulationMode('AFTER_LESSON')}
-                  className={`p-2.5 rounded-lg border text-left transition-all cursor-pointer ${
-                    timeSimulationMode === 'AFTER_LESSON'
-                      ? 'border-red-600 bg-white ring-2 ring-red-600/20 shadow-xs'
-                      : 'border-[#D6E2F5] bg-white/70 hover:bg-white text-slate-600'
-                  }`}
-                >
-                  <div className="flex items-center justify-between">
-                    <span className="text-xs font-bold text-red-700">После урока</span>
-                    <span className="text-[10px] font-semibold text-red-700 bg-red-50 px-1.5 py-0.5 rounded">
-                      Пн 19:45
-                    </span>
-                  </div>
-                  <p className="text-[11px] text-slate-500 mt-0.5">
-                    После 19:00 • Заблокировано
-                  </p>
-                </button>
-
-                <button
-                  type="button"
-                  onClick={() => setTimeSimulationMode('REAL_TIME')}
-                  className={`p-2.5 rounded-lg border text-left transition-all cursor-pointer ${
-                    timeSimulationMode === 'REAL_TIME'
-                      ? 'border-[#0B3D91] bg-white ring-2 ring-[#0B3D91]/20 shadow-xs'
-                      : 'border-[#D6E2F5] bg-white/70 hover:bg-white text-slate-600'
-                  }`}
-                >
-                  <div className="flex items-center justify-between">
-                    <span className="text-xs font-bold text-[#0B3D91]">Реальные часы</span>
-                    <span className="text-[10px] font-semibold text-slate-600 bg-slate-100 px-1.5 py-0.5 rounded">
-                      ПК
-                    </span>
-                  </div>
-                  <p className="text-[11px] text-slate-500 mt-0.5">
-                    Системное время устройства
-                  </p>
-                </button>
-              </div>
-            </div>
-
-            {/* 2. Geolocation Presets Switcher */}
-            <div className="p-4 bg-[#F5F8FD] border border-[#D6E2F5] rounded-xl space-y-2.5">
-              <div className="flex items-center justify-between">
-                <div className="flex items-center gap-2">
-                  <Smartphone className="w-4 h-4 text-[#0B3D91]" />
-                  <span className="text-xs font-bold text-[#0F1F3D]">
-                    Симулятор локации (Геозона: 150 м вокруг Hall 301):
-                  </span>
-                </div>
-                <span className="text-[11px] text-slate-500">
-                  Локация: <strong>{studentCoords.sourceLabel}</strong>
-                </span>
-              </div>
-
-              <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
-                <button
-                  type="button"
-                  onClick={() => handleSelectPreset('INSIDE')}
-                  className={`p-2.5 rounded-lg border text-left transition-all cursor-pointer ${
-                    studentCoords.source === 'INSIDE'
-                      ? 'border-[#0B3D91] bg-white ring-2 ring-[#0B3D91]/20 shadow-xs'
-                      : 'border-[#D6E2F5] bg-white/70 hover:bg-white text-slate-600'
-                  }`}
-                >
-                  <div className="flex items-center justify-between">
-                    <span className="text-xs font-bold text-[#0B3D91]">Внутри Hall 301</span>
-                    <span className="text-[10px] font-semibold text-emerald-600 bg-emerald-50 px-1.5 py-0.5 rounded">
-                      ~3.5 м
-                    </span>
-                  </div>
-                  <p className="text-[11px] text-slate-500 mt-0.5">
-                    В пределах 150м • Чек-ин разрешен
-                  </p>
-                </button>
-
-                <button
-                  type="button"
-                  onClick={() => handleSelectPreset('OUTSIDE')}
-                  className={`p-2.5 rounded-lg border text-left transition-all cursor-pointer ${
-                    studentCoords.source === 'OUTSIDE'
-                      ? 'border-red-600 bg-white ring-2 ring-red-600/20 shadow-xs'
-                      : 'border-[#D6E2F5] bg-white/70 hover:bg-white text-slate-600'
-                  }`}
-                >
-                  <div className="flex items-center justify-between">
-                    <span className="text-xs font-bold text-red-600">Вне кампуса (Город)</span>
-                    <span className="text-[10px] font-semibold text-red-600 bg-red-50 px-1.5 py-0.5 rounded">
-                      ~1.2 км
-                    </span>
-                  </div>
-                  <p className="text-[11px] text-slate-500 mt-0.5">
-                    Превышает 150м • Чек-ин блокируется
-                  </p>
-                </button>
-
-                <button
-                  type="button"
-                  onClick={() => handleSelectPreset('DRIFT')}
-                  className={`p-2.5 rounded-lg border text-left transition-all cursor-pointer ${
-                    studentCoords.source === 'DRIFT'
-                      ? 'border-amber-600 bg-white ring-2 ring-amber-600/20 shadow-xs'
-                      : 'border-[#D6E2F5] bg-white/70 hover:bg-white text-slate-600'
-                  }`}
-                >
-                  <div className="flex items-center justify-between">
-                    <span className="text-xs font-bold text-amber-700">Дрифт сигнала GPS</span>
-                    <span className="text-[10px] font-semibold text-amber-700 bg-amber-50 px-1.5 py-0.5 rounded">
-                      Слабый сигнал
-                    </span>
-                  </div>
-                  <p className="text-[11px] text-slate-500 mt-0.5">
-                    Стены КБТУ • Ручная апелляция учителю
-                  </p>
-                </button>
-              </div>
-            </div>
           </div>
         </div>
       </div>

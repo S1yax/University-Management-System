@@ -8,25 +8,51 @@ import { UserRole } from '../types';
 export const ROLE_PATHS: Record<UserRole, string[]> = {
   STUDENT: [
     'dashboard',
+    // Official KBTU Uninet pages
+    'transcript',
+    'journal',
+    'syllabus',
+    'attestation',
+    'course-materials',
+    'schedule',
+    'exam-schedule',
+    'discipline-schedule',
+    'financial-cabinet',
+    'billing',
+    'course-registration',
+    'schedule-creation',
+    'add-drop',
+    'requests',
+    'surveys',
+    'entry-tests',
+    'mobility',
+    'dormitory',
+    'user-profile',
+    'news',
+    'files',
+    // Backwards compatibility
     'my-courses',
     'attendance-checkin',
-    'schedule',
     'grades-transcript',
-    'course-registration',
     'messages',
     'teacher-ratings',
-    'news',
   ],
   TEACHER: [
     'dashboard',
-    'my-courses',
+    'journal',
     'live-attendance',
     'gradebook',
     'lessons',
     'students',
     'research',
+    'syllabus',
+    'schedule',
+    'exam-schedule',
     'messages',
     'news',
+    'files',
+    'user-profile',
+    'my-courses',
   ],
   MANAGER: [
     'dashboard',
@@ -37,11 +63,22 @@ export const ROLE_PATHS: Record<UserRole, string[]> = {
     'mentors',
     'messages',
     'news',
+    'schedule',
+    'user-profile',
   ],
-  ADMIN: ['dashboard', 'users', 'roles-permissions', 'audit-log', 'courses', 'applications', 'system-settings'],
+  ADMIN: [
+    'dashboard',
+    'users',
+    'roles-permissions',
+    'audit-log',
+    'courses',
+    'applications',
+    'system-settings',
+    'user-profile',
+  ],
 };
 
-/** Pages every signed-in role may open ('change-password' is an account page, the rest are project pages). */
+/** Pages every signed-in role may open ('change-password' and 'profile' are account pages, the rest are project pages). */
 export const SHARED_PATHS = ['database-erd', 'team-39', 'project-status', 'change-password', 'profile'];
 
 /** True when this role may open this page. Anything unknown is denied. */

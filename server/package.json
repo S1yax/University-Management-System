@@ -1,0 +1,20 @@
+{
+  "name": "kbtu-ums-server",
+  "version": "1.0.0",
+  "description": "Backend for the KBTU UMS every-hour attendance tracker (Team 39)",
+  "type": "module",
+  "main": "src/index.js",
+  "scripts": {
+    "start": "node src/index.js",
+    "test": "node --test test/api.test.js"
+  },
+  "engines": {
+    "node": ">=18"
+  },
+  "dependencies": {
+    "cors": "^2.8.6",
+    "dotenv": "^16.6.1",
+    "express": "^4.22.3",
+    "pg": "^8.23.1"
+  }
+}

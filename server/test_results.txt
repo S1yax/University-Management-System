@@ -1,0 +1,116 @@
+
+> kbtu-ums-server@1.0.0 test
+> node --test test/api.test.js
+
+TAP version 13
+# Subtest: A1 server is connected to the database
+ok 1 - A1 server is connected to the database
+  ---
+  duration_ms: 112.321274
+  type: 'test'
+  ...
+# Subtest: A2 attendance at the end of week 8 = 50% for Mubarak, same as the website
+ok 2 - A2 attendance at the end of week 8 = 50% for Mubarak, same as the website
+  ---
+  duration_ms: 15.360641
+  type: 'test'
+  ...
+# Subtest: A3 check-in at 17:05 inside Hall 301 is saved for hour 2
+ok 3 - A3 check-in at 17:05 inside Hall 301 is saved for hour 2
+  ---
+  duration_ms: 41.375324
+  type: 'test'
+  ...
+# Subtest: A4 second check-in in the same hour (17:40) is rejected
+ok 4 - A4 second check-in in the same hour (17:40) is rejected
+  ---
+  duration_ms: 15.875
+  type: 'test'
+  ...
+# Subtest: A5 check-in at 18:10 is a new check-in for hour 3
+ok 5 - A5 check-in at 18:10 is a new check-in for hour 3
+  ---
+  duration_ms: 27.753586
+  type: 'test'
+  ...
+# Subtest: A6 check-in 1.3 km away is saved as REJECTED
+ok 6 - A6 check-in 1.3 km away is saved as REJECTED
+  ---
+  duration_ms: 18.135106
+  type: 'test'
+  ...
+# Subtest: A7 check-in after the lesson (19:30) is rejected
+ok 7 - A7 check-in after the lesson (19:30) is rejected
+  ---
+  duration_ms: 5.005486
+  type: 'test'
+  ...
+# Subtest: A8 check-in to a CLOSED lesson is rejected
+ok 8 - A8 check-in to a CLOSED lesson is rejected
+  ---
+  duration_ms: 4.619537
+  type: 'test'
+  ...
+# Subtest: A9 student who is not registered for the course is rejected
+ok 9 - A9 student who is not registered for the course is rejected
+  ---
+  duration_ms: 7.333563
+  type: 'test'
+  ...
+# Subtest: A10 request without GPS is rejected
+ok 10 - A10 request without GPS is rejected
+  ---
+  duration_ms: 5.120157
+  type: 'test'
+  ...
+# Subtest: A11 tracker shows every hour: Mubarak 3/3, Amir hour 2 REJECTED
+ok 11 - A11 tracker shows every hour: Mubarak 3/3, Amir hour 2 REJECTED
+  ---
+  duration_ms: 8.093537
+  type: 'test'
+  ...
+# Subtest: A12 teacher change without a reason is rejected
+ok 12 - A12 teacher change without a reason is rejected
+  ---
+  duration_ms: 4.120925
+  type: 'test'
+  ...
+# Subtest: A13 teacher changes Amir hour 2 to PRESENT with a reason
+ok 13 - A13 teacher changes Amir hour 2 to PRESENT with a reason
+  ---
+  duration_ms: 11.377705
+  type: 'test'
+  ...
+# Subtest: A14 teacher cannot set hour 2 in a lesson tracked once
+ok 14 - A14 teacher cannot set hour 2 in a lesson tracked once
+  ---
+  duration_ms: 8.181323
+  type: 'test'
+  ...
+# Subtest: A15 weak GPS inside the building is saved as MANUAL_REVIEW
+ok 15 - A15 weak GPS inside the building is saved as MANUAL_REVIEW
+  ---
+  duration_ms: 19.676498
+  type: 'test'
+  ...
+# Subtest: A16 records list has the check-ins made above
+ok 16 - A16 records list has the check-ins made above
+  ---
+  duration_ms: 7.84596
+  type: 'test'
+  ...
+# Subtest: A17 teacher closes ses-8, then a check-in is rejected
+ok 17 - A17 teacher closes ses-8, then a check-in is rejected
+  ---
+  duration_ms: 25.440785
+  type: 'test'
+  ...
+1..17
+# tests 17
+# suites 0
+# pass 17
+# fail 0
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 644.718883
