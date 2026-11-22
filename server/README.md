@@ -69,7 +69,11 @@ The checks go in the same order as `checkInGPS()` on the website:
 | Student is not registered for the course | 403 `REJECTED_NOT_ENROLLED` |
 | Already checked in for this hour | 409 `ALREADY_CHECKED_IN` (the database rule `uq_session_student_hour`) |
 | Farther than 150 m | 201 `REJECTED_RADIUS`, saved as REJECTED |
-| `weakSignal: true` (weak GPS indoors) | 201 `MANUAL_REVIEW_SUBMITTED`, saved as MANUAL_REVIEW |
+| `accuracy` over 100 m and the accuracy circle reaches the campus | 201 `MANUAL_REVIEW_SUBMITTED`, saved as MANUAL_REVIEW |
+| `accuracy` under 1 m (e.g. 0, fake GPS) and inside the radius | 201 `MANUAL_REVIEW_SUBMITTED` with a "Suspicious GPS accuracy" reason |
+| `accuracy` under 1 m and outside the radius | 201 `REJECTED_RADIUS` |
+| `accuracy` is not a number | 400 `BAD_REQUEST` |
+| `weakSignal: true` and no `accuracy` (old clients) | 201 `MANUAL_REVIEW_SUBMITTED`, saved as MANUAL_REVIEW. When `accuracy` is sent, `weakSignal` is ignored |
 | Everything is fine | 201 `SUCCESS_PRESENT` with `hourSlot` 1, 2 or 3 |
 
 The status names are the same as on the website, so the page can show the same messages.
@@ -82,8 +86,8 @@ The status names are the same as on the website, so the page can show the same m
 
 ## Tests
 
-`npm test` runs 17 API tests (A1–A17) against the database from `.env`.
-Every check-in made by the tests is deleted at the end. Last result: `test_results.txt` (17 of 17 pass).
+`npm test` runs 7 accuracy unit tests (U1–U7, no database needed) and 22 API tests (A1–A22) against the database from `.env`.
+Every check-in made by the tests is deleted at the end. `test_results.txt` holds the last run before the accuracy tests (A18–A22, U1–U7) were added; run `npm test` to refresh it.
 
 ## Not done yet
 

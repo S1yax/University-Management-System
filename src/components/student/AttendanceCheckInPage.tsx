@@ -22,7 +22,7 @@ import {
   formatDistance,
   KBTU_HALL_301_COORDS,
   calculateHaversineDistance,
-  shouldReviewWeakGps,
+  needsManualReview,
 } from '../../utils/geo';
 import { CampusMap } from '../common/CampusMap';
 import { DataSourceBadge } from '../common/DataSourceBadge';
@@ -108,9 +108,9 @@ export const AttendanceCheckInPage: React.FC = () => {
   const allowedRadiusM = activeSession?.allowedCampusRadiusM || KBTU_HALL_301_COORDS.allowedRadiusM;
   const isWithinRadius = currentDistanceM <= allowedRadiusM;
   const isDriftMode = studentCoords.source === 'DRIFT';
-  // Weak real-device GPS near the campus goes to manual review instead of rejection
+  // Weak GPS near the campus, or a "too perfect" accuracy inside it, goes to manual review
   const isWeakSignal =
-    isDriftMode || shouldReviewWeakGps(currentDistanceM, studentCoords.accuracy, allowedRadiusM);
+    isDriftMode || needsManualReview(currentDistanceM, studentCoords.accuracy, allowedRadiusM);
 
   // Synchronize existing status if student already has a record for the current active hour
   useEffect(() => {
@@ -158,7 +158,7 @@ export const AttendanceCheckInPage: React.FC = () => {
         setStudentCoords({
           lat: pos.coords.latitude,
           lng: pos.coords.longitude,
-          accuracy: Math.round(pos.coords.accuracy),
+          accuracy: pos.coords.accuracy, // not rounded: 0.4 m must stay "too perfect"
           source: 'REAL_BROWSER',
           sourceLabel: `Реальный GPS устройства (±${Math.round(pos.coords.accuracy)}м)`,
         });
@@ -215,7 +215,8 @@ export const AttendanceCheckInPage: React.FC = () => {
       studentCoords.lat,
       studentCoords.lng,
       isWeakSignal,
-      activeHourSlot
+      activeHourSlot,
+      studentCoords.accuracy
     )
       .then(processCheckInResult)
       .finally(() => setIsLocating(false));
@@ -603,7 +604,7 @@ export const AttendanceCheckInPage: React.FC = () => {
                 </div>
                 <div className="text-[11px] text-slate-500 pt-1 border-t border-slate-100 flex justify-between">
                   <span>Погрешность сигнала:</span>
-                  <strong>±{studentCoords.accuracy || 5} м</strong>
+                  <strong>±{Math.round((studentCoords.accuracy ?? 5) * 10) / 10} м</strong>
                 </div>
               </div>
             </div>

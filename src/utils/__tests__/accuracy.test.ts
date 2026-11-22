@@ -2,10 +2,13 @@ import { describe, it, expect } from 'vitest';
 import {
   calculateHaversineDistance,
   isWeakAccuracy,
+  isSuspiciousAccuracy,
+  needsManualReview,
   shouldReviewWeakGps,
   KBTU_HALL_301_COORDS,
   SIMULATION_PRESETS,
   WEAK_ACCURACY_THRESHOLD_M,
+  SUSPICIOUS_ACCURACY_BELOW_M,
 } from '../geo';
 
 describe('GPS accuracy check', () => {
@@ -66,6 +69,43 @@ describe('GPS accuracy check', () => {
 
     it('does not review when accuracy is unknown', () => {
       expect(shouldReviewWeakGps(30, undefined)).toBe(false);
+    });
+  });
+  describe('isSuspiciousAccuracy (too perfect, possible fake GPS)', () => {
+    it('treats 0 m and values under 1 m as suspicious', () => {
+      expect(isSuspiciousAccuracy(0)).toBe(true);
+      expect(isSuspiciousAccuracy(0.4)).toBe(true);
+      expect(isSuspiciousAccuracy(-5)).toBe(true);
+    });
+
+    it('treats exactly 1 m and normal values as not suspicious', () => {
+      expect(isSuspiciousAccuracy(SUSPICIOUS_ACCURACY_BELOW_M)).toBe(false);
+      expect(isSuspiciousAccuracy(6)).toBe(false);
+      expect(isSuspiciousAccuracy(250)).toBe(false);
+    });
+
+    it('does not treat unknown or invalid accuracy as suspicious', () => {
+      expect(isSuspiciousAccuracy(undefined)).toBe(false);
+      expect(isSuspiciousAccuracy(NaN)).toBe(false);
+    });
+  });
+
+  describe('needsManualReview', () => {
+    it('reviews a too-perfect accuracy inside the radius', () => {
+      expect(needsManualReview(5, 0)).toBe(true);
+    });
+
+    it('does not review a too-perfect accuracy outside the radius (normal rejection)', () => {
+      expect(needsManualReview(900, 0)).toBe(false);
+    });
+
+    it('still reviews weak accuracy near the campus', () => {
+      expect(needsManualReview(20, 250)).toBe(true);
+    });
+
+    it('does not review a normal accuracy', () => {
+      expect(needsManualReview(5, 8)).toBe(false);
+      expect(needsManualReview(5, undefined)).toBe(false);
     });
   });
 });

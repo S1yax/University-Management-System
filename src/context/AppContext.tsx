@@ -114,7 +114,7 @@ interface AppContextType {
   logout: () => void;
   checkInGPS: (sessionId: string, latitude: number, longitude: number, isDrift?: boolean, hourSlot?: 1 | 2 | 3) => CheckInResult;
   /** Same as checkInGPS, but saves to the server (PostgreSQL) when it is online. */
-  checkInGPSAsync: (sessionId: string, latitude: number, longitude: number, isDrift?: boolean, hourSlot?: 1 | 2 | 3) => Promise<CheckInResult>;
+  checkInGPSAsync: (sessionId: string, latitude: number, longitude: number, isDrift?: boolean, hourSlot?: 1 | 2 | 3, accuracy?: number) => Promise<CheckInResult>;
   /** true = the website is connected to the server, false = data only in this browser. */
   serverOnline: boolean;
   isApiConfigured: boolean;
@@ -904,7 +904,8 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     latitude: number,
     longitude: number,
     isDrift: boolean = false,
-    hourSlot?: 1 | 2 | 3
+    hourSlot?: 1 | 2 | 3,
+    accuracy?: number
   ): Promise<CheckInResult> => {
     if (!serverOnline || !currentUser?.studentId) {
       return checkInGPS(sessionId, latitude, longitude, isDrift, hourSlot);
@@ -917,6 +918,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         longitude,
         time: lessonTimeFor(sessionId),
         weakSignal: isDrift || undefined,
+        accuracy, // the server decides on weak / too-perfect accuracy itself
       });
       const ok = body.status === 'SUCCESS_PRESENT' || body.status === 'MANUAL_REVIEW_SUBMITTED';
       addAuditLog(

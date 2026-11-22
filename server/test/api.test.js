@@ -11,6 +11,8 @@ const FAR_AWAY = { latitude: 43.264000, longitude: 76.953500 }; // ~1.3 km away
 const MUBARAK = '24B031901';
 const AMIR = '24B031787';
 const DANIYAR = '25B032011'; // IS202 only, not in BIS201
+const SANIYA = '24B031926';
+const BAGDAT = '24B031666';
 
 let server;
 let base;
@@ -138,6 +140,40 @@ test('A15 weak GPS inside the building is saved as MANUAL_REVIEW', async () => {
   assert.equal(r.code, 201);
   assert.equal(r.body.status, 'MANUAL_REVIEW_SUBMITTED');
   assert.equal(r.body.record.verification_status, 'MANUAL_REVIEW');
+});
+
+test('A18 weak accuracy (250 m) inside the building is saved as MANUAL_REVIEW by the server', async () => {
+  const r = await post('/checkin', { sessionId: 'ses-8', studentId: SANIYA, ...HALL_301, time: '2026-11-02 16:20', accuracy: 250 });
+  assert.equal(r.code, 201);
+  assert.equal(r.body.status, 'MANUAL_REVIEW_SUBMITTED');
+  assert.equal(r.body.record.verification_status, 'MANUAL_REVIEW');
+  assert.match(r.body.record.rejection_reason, /Weak GPS accuracy/);
+});
+
+test('A19 too-perfect accuracy (0 m) inside the radius is flagged for review', async () => {
+  const r = await post('/checkin', { sessionId: 'ses-8', studentId: BAGDAT, ...HALL_301, time: '2026-11-02 16:20', accuracy: 0 });
+  assert.equal(r.code, 201);
+  assert.equal(r.body.status, 'MANUAL_REVIEW_SUBMITTED');
+  assert.equal(r.body.record.verification_status, 'MANUAL_REVIEW');
+  assert.match(r.body.record.rejection_reason, /Suspicious GPS accuracy/);
+});
+
+test('A20 a forged weakSignal flag is ignored when accuracy is sent', async () => {
+  const r = await post('/checkin', { sessionId: 'ses-8', studentId: BAGDAT, ...FAR_AWAY, time: '2026-11-02 17:20', accuracy: 8, weakSignal: true });
+  assert.equal(r.code, 201);
+  assert.equal(r.body.status, 'REJECTED_RADIUS');
+});
+
+test('A21 too-perfect accuracy far from the campus is a normal REJECTED_RADIUS', async () => {
+  const r = await post('/checkin', { sessionId: 'ses-8', studentId: SANIYA, ...FAR_AWAY, time: '2026-11-02 17:20', accuracy: 0 });
+  assert.equal(r.code, 201);
+  assert.equal(r.body.status, 'REJECTED_RADIUS');
+});
+
+test('A22 accuracy that is not a number is rejected', async () => {
+  const r = await post('/checkin', { sessionId: 'ses-8', studentId: SANIYA, ...HALL_301, time: '2026-11-02 18:20', accuracy: 'abc' });
+  assert.equal(r.code, 400);
+  assert.equal(r.body.status, 'BAD_REQUEST');
 });
 
 test('A16 records list has the check-ins made above', async () => {

@@ -98,6 +98,33 @@ export function shouldReviewWeakGps(
   return distanceM - (accuracyM as number) <= radiusM;
 }
 
+// Accuracy below this is "too perfect": real phone/laptop GPS does not report it,
+// fake-GPS apps and emulators often send 0 (or 1 m or less)
+export const SUSPICIOUS_ACCURACY_BELOW_M = 1;
+
+/**
+ * True when the reported accuracy is too perfect to be real (0 m, under 1 m, negative).
+ * Unknown accuracy (undefined / not a number) is not treated as suspicious.
+ */
+export function isSuspiciousAccuracy(accuracyM: number | undefined): boolean {
+  if (accuracyM === undefined || !Number.isFinite(accuracyM)) return false;
+  return accuracyM < SUSPICIOUS_ACCURACY_BELOW_M;
+}
+
+/**
+ * Manual review is needed when the signal is weak (near the campus) or when the
+ * accuracy looks fake while the student is inside the radius. A fake-looking
+ * accuracy far from the campus is a normal "outside the radius" rejection.
+ */
+export function needsManualReview(
+  distanceM: number,
+  accuracyM: number | undefined,
+  radiusM: number = KBTU_HALL_301_COORDS.allowedRadiusM
+): boolean {
+  if (shouldReviewWeakGps(distanceM, accuracyM, radiusM)) return true;
+  return isSuspiciousAccuracy(accuracyM) && distanceM <= radiusM;
+}
+
 /**
  * Formats distance nicely (e.g. "4.2 m" or "1.25 km")
  */

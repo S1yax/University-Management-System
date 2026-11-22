@@ -76,6 +76,7 @@ export const attendanceApi = {
     longitude: number;
     time?: string;
     weakSignal?: boolean;
+    accuracy?: number;
   }) => call<ApiAnswer>('/checkin', { method: 'POST', body: JSON.stringify(body) }),
 
   override: (body: {

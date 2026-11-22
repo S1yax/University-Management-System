@@ -11,7 +11,7 @@
 import express from 'express';
 import cors from 'cors';
 import { pool, PG } from './db.js';
-import { distanceMeters } from './geo.js';
+import { distanceMeters, judgeAccuracy } from './geo.js';
 
 // Demo mode: the website can send a "time" so we can test lessons in the past
 // (the sample lesson ses-8 was on 02.11). In a real system this must be false:
@@ -40,16 +40,25 @@ app.get('/api/health', route(async (_req, res) => {
 // ---------------------------------------------------------------------
 // POST /api/checkin
 // Body: { sessionId, studentId, latitude, longitude, time?, weakSignal? }
-// weakSignal = true: GPS is weak inside the building, the student asks the teacher
-// to check by hand. The check-in is saved as MANUAL_REVIEW (like isDrift on the website).
+// accuracy = the accuracy in meters that the browser reports (coords.accuracy). When it is sent,
+// the server decides by itself and ignores weakSignal:
+//   - weak (over 100 m) and the accuracy circle reaches the campus radius -> MANUAL_REVIEW
+//   - too perfect (under 1 m, e.g. 0: fake GPS) and inside the radius -> MANUAL_REVIEW with a warning
+//   - too perfect and outside the radius -> REJECTED (distance)
+// weakSignal = true (only used when no accuracy is sent): GPS is weak inside the building,
+// the student asks the teacher to check by hand. The check-in is saved as MANUAL_REVIEW
+// (like isDrift on the website).
 // The checks go in the same order as checkInGPS() on the website:
 //   1. lesson time  2. lesson OPEN  3. student enrolled  4. one check-in per hour  5. distance
 // ---------------------------------------------------------------------
 app.post('/api/checkin', route(async (req, res) => {
-  const { sessionId, studentId, latitude, longitude, time, weakSignal } = req.body ?? {};
+  const { sessionId, studentId, latitude, longitude, time, weakSignal, accuracy } = req.body ?? {};
   if (!sessionId || !studentId || !isNumber(latitude) || !isNumber(longitude)
       || Math.abs(latitude) > 90 || Math.abs(longitude) > 180) {
     return reply(res, 400, 'BAD_REQUEST', 'sessionId, studentId, latitude and longitude are required.');
+  }
+  if (accuracy !== undefined && accuracy !== null && !isNumber(accuracy)) {
+    return reply(res, 400, 'BAD_REQUEST', 'accuracy must be a number (meters).');
   }
   if (time && !ALLOW_DEMO_TIME) {
     return reply(res, 400, 'BAD_REQUEST', 'The check-in time is set by the server.');
@@ -93,11 +102,18 @@ app.post('/api/checkin', route(async (req, res) => {
     distanceMeters(latitude, longitude, Number(lesson.centroid_lat), Number(lesson.centroid_lng)) * 10
   ) / 10;
   const inside = distance <= lesson.allowed_campus_radius_m;
-  const review = weakSignal === true;
+  // The accuracy sent by the browser decides; the weakSignal flag is used only without accuracy
+  const verdict = judgeAccuracy(accuracy, distance, lesson.allowed_campus_radius_m);
+  const suspicious = verdict === 'SUSPICIOUS' && inside;
+  const review = verdict === 'UNKNOWN' ? weakSignal === true : verdict === 'WEAK_NEAR' || suspicious;
   const status = review ? 'MANUAL_REVIEW' : inside ? 'PRESENT' : 'REJECTED';
-  const reason = review
-    ? 'Indoor GPS drift: the student asked for a manual review'
-    : inside ? null : `Distance ${distance}m exceeded allowed radius ${lesson.allowed_campus_radius_m}m`;
+  const reason = suspicious
+    ? `Suspicious GPS accuracy (${accuracy} m): possible fake GPS, the teacher must check`
+    : review
+      ? verdict === 'WEAK_NEAR'
+        ? `Weak GPS accuracy (${accuracy} m): manual review`
+        : 'Indoor GPS drift: the student asked for a manual review'
+      : inside ? null : `Distance ${distance}m exceeded allowed radius ${lesson.allowed_campus_radius_m}m`;
 
   // 4. One check-in per hour: the database rule uq_session_student_hour decides
   try {
@@ -113,7 +129,8 @@ app.post('/api/checkin', route(async (req, res) => {
     );
     return reply(res, 201,
       review ? 'MANUAL_REVIEW_SUBMITTED' : inside ? 'SUCCESS_PRESENT' : 'REJECTED_RADIUS',
-      review ? `Manual review for hour ${lesson.hour_slot} sent to the teacher.`
+      suspicious ? `Suspicious GPS accuracy: the check-in for hour ${lesson.hour_slot} was sent to the teacher for review.`
+        : review ? `Manual review for hour ${lesson.hour_slot} sent to the teacher.`
         : inside ? `Checked in for hour ${lesson.hour_slot}.` : reason,
       { hourSlot: lesson.hour_slot, distanceM: distance, record: saved.rows[0] });
   } catch (err) {
