@@ -8,10 +8,15 @@
 //   GET  /api/records[?sessionId=ses-8]   all check-ins (the website loads them on start)
 //   GET  /api/sessions                    lesson statuses (OPEN / CLOSED)
 //   PATCH /api/sessions/:id               the teacher opens or closes check-in
+// Other parts of the API are in src/routes/ (one file per part):
+//   routes/courses.js      courses, timetable, course registration
+//   routes/attestation.js  attestation points and grades
 import express from 'express';
 import cors from 'cors';
 import { pool, PG } from './db.js';
 import { distanceMeters, judgeAccuracy } from './geo.js';
+import { courses } from './routes/courses.js';
+import { attestation } from './routes/attestation.js';
 
 // Demo mode: the website can send a "time" so we can test lessons in the past
 // (the sample lesson ses-8 was on 02.11). In a real system this must be false:
@@ -268,6 +273,10 @@ app.patch('/api/sessions/:id', route(async (req, res) => {
   if (rows.length === 0) return reply(res, 404, 'NOT_FOUND', `Lesson ${req.params.id} does not exist.`);
   return reply(res, 200, 'UPDATED', `Lesson ${req.params.id} is now ${status}.`, { session: rows[0] });
 }));
+
+// Parts of the API in separate files (see src/routes/)
+app.use(courses);
+app.use(attestation);
 
 // Any other error: log it and answer without showing database details
 app.use((err, _req, res, _next) => {

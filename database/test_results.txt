@@ -11,3 +11,17 @@ TEST 10 PASS: status MAYBE rejected (CHECK)
 TEST 11 PASS: duplicate registration rejected (uq_student_course_semester)
 TEST 12 PASS: override without a reason rejected (chk_override_reason)
 TEST 13 PASS: ses-1 deleted together with its 5 check-ins
+TEST 14 PASS: catalog has 8 subjects, DB202 has 31 of 35 places free
+TEST 15 PASS: Mubarak registered for NET203, status Pending
+TEST 16 PASS: same course twice rejected (uq_student_course_semester)
+TEST 17 PASS: IS202 (Tue 16-19) rejected, clash with DB202 (Tue 14-17): Time clash with DB202
+TEST 18 PASS: Saniya FIN201 saved (19 credits), IS202 rejected: Credit limit: 19 + 4 > 21
+TEST 19 PASS: ENG102 with 1 place: Mubarak saved, Amir rejected: No free places in ENG102 (1 of 1)
+TEST 20 PASS: unknown course XYZ999 rejected
+TEST 21 PASS: points for Pending NET203 rejected (trigger)
+TEST 22 PASS: 31 points for the 1st attestation rejected (CHECK 0-30)
+TEST 23 PASS: final exam with 10 + 15 = 25 points rejected (chk_admitted_to_final)
+TEST 24 PASS: Saniya BIS201 28.5 + 27 + 38 = 93.5 = A-
+TEST 25 PASS: 95 = A, 87 = B+ (3.33), 50 = D, 49.9 = F
+TEST 26 PASS: Lab 204 is double-booked on Tue 16-17 (DB202, IS202), 2 students have this clash
+TEST 27 PASS: Saniya CS101 registration deleted together with its points

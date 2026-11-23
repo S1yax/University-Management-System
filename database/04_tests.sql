@@ -4,6 +4,7 @@
 -- All changes are undone at the end (ROLLBACK), so you can run it again.
 --
 -- Version 2 (16.11): tests 1-8 check the every-hour tracker.
+-- Version 3 (23.11): tests 14-27 check course registration, the schedule and attestation.
 -- Students used below:
 --   24B031926 = Saniya,  24B031901 = Mubarak,  24B031787 = Amir
 -- ses-8 = BIS201 week 8, Monday 02.11, 16:00-19:00, tracked every hour
@@ -166,6 +167,169 @@ BEGIN
         RAISE NOTICE 'TEST 13 PASS: ses-1 deleted together with its 5 check-ins';
     ELSE
         RAISE NOTICE 'TEST 13 FAIL: % check-ins left', n;
+    END IF;
+END $$;
+
+-- =====================================================================
+-- Version 3: course registration, schedule, attestation
+-- Mubarak now: BIS201 (Mon), CS101 (Wed), DB202 (Tue 14-17) = 10 credits
+-- Saniya now:  BIS201, CS101, DB202, NET203, MATH101       = 16 credits
+-- =====================================================================
+
+-- TEST 14: the catalog has all 8 subjects with free places
+DO $$
+DECLARE n INT; free INT;
+BEGIN
+    SELECT COUNT(*) INTO n FROM v_course_catalog;
+    SELECT free_places INTO free FROM v_course_catalog WHERE course_code = 'DB202';
+    IF n = 8 AND free = 31 THEN
+        RAISE NOTICE 'TEST 14 PASS: catalog has 8 subjects, DB202 has 31 of 35 places free';
+    ELSE
+        RAISE NOTICE 'TEST 14 FAIL: % subjects, DB202 free = %', n, free;
+    END IF;
+END $$;
+
+-- TEST 15: a new registration is saved as Pending
+DO $$
+DECLARE r enrollments;
+BEGIN
+    r := register_for_course('24B031901', 'NET203', 'Fall 2026');
+    IF r.status = 'Pending' THEN
+        RAISE NOTICE 'TEST 15 PASS: Mubarak registered for NET203, status Pending';
+    ELSE
+        RAISE NOTICE 'TEST 15 FAIL: status %', r.status;
+    END IF;
+EXCEPTION WHEN OTHERS THEN
+    RAISE NOTICE 'TEST 15 FAIL: %', SQLERRM;
+END $$;
+
+-- TEST 16: the same registration again is rejected
+DO $$
+BEGIN
+    PERFORM register_for_course('24B031901', 'NET203', 'Fall 2026');
+    RAISE NOTICE 'TEST 16 FAIL: second registration saved';
+EXCEPTION WHEN unique_violation THEN
+    RAISE NOTICE 'TEST 16 PASS: same course twice rejected (uq_student_course_semester)';
+END $$;
+
+-- TEST 17: a course at the same time as another course is rejected
+DO $$
+BEGIN
+    PERFORM register_for_course('24B031901', 'IS202', 'Fall 2026');
+    RAISE NOTICE 'TEST 17 FAIL: IS202 saved although it clashes with DB202';
+EXCEPTION WHEN SQLSTATE 'UMS03' THEN
+    RAISE NOTICE 'TEST 17 PASS: IS202 (Tue 16-19) rejected, clash with DB202 (Tue 14-17): %', SQLERRM;
+END $$;
+
+-- TEST 18: more than 21 credits is rejected
+DO $$
+BEGIN
+    PERFORM register_for_course('24B031926', 'FIN201', 'Fall 2026');   -- 16 + 3 = 19, allowed
+    PERFORM register_for_course('24B031926', 'IS202', 'Fall 2026');    -- 19 + 4 = 23
+    RAISE NOTICE 'TEST 18 FAIL: 23 credits saved';
+EXCEPTION WHEN SQLSTATE 'UMS02' THEN
+    RAISE NOTICE 'TEST 18 PASS: Saniya FIN201 saved (19 credits), IS202 rejected: %', SQLERRM;
+END $$;
+
+-- TEST 19: a full course is rejected
+DO $$
+BEGIN
+    UPDATE courses SET max_places = 1 WHERE course_code = 'ENG102';
+    PERFORM register_for_course('24B031901', 'ENG102', 'Fall 2026');   -- takes the only place
+    PERFORM register_for_course('24B031787', 'ENG102', 'Fall 2026');
+    RAISE NOTICE 'TEST 19 FAIL: second student saved in a full course';
+EXCEPTION WHEN SQLSTATE 'UMS01' THEN
+    RAISE NOTICE 'TEST 19 PASS: ENG102 with 1 place: Mubarak saved, Amir rejected: %', SQLERRM;
+END $$;
+
+-- TEST 20: a course that does not exist is rejected
+DO $$
+BEGIN
+    PERFORM register_for_course('24B031901', 'XYZ999', 'Fall 2026');
+    RAISE NOTICE 'TEST 20 FAIL: unknown course saved';
+EXCEPTION WHEN foreign_key_violation THEN
+    RAISE NOTICE 'TEST 20 PASS: unknown course XYZ999 rejected';
+END $$;
+
+-- TEST 21: points for a registration that is not approved yet are rejected
+DO $$
+BEGIN
+    INSERT INTO attestation (student_id, course_code, semester, attestation_1)
+    VALUES ('24B031901', 'NET203', 'Fall 2026', 20);
+    RAISE NOTICE 'TEST 21 FAIL: points saved for a Pending registration';
+EXCEPTION WHEN SQLSTATE 'UMS05' THEN
+    RAISE NOTICE 'TEST 21 PASS: points for Pending NET203 rejected (trigger)';
+END $$;
+
+-- TEST 22: more than 30 points for one attestation is rejected
+DO $$
+BEGIN
+    INSERT INTO attestation (student_id, course_code, semester, attestation_1)
+    VALUES ('24B031901', 'BIS201', 'Fall 2026', 31);
+    RAISE NOTICE 'TEST 22 FAIL: 31 points saved';
+EXCEPTION WHEN check_violation THEN
+    RAISE NOTICE 'TEST 22 PASS: 31 points for the 1st attestation rejected (CHECK 0-30)';
+END $$;
+
+-- TEST 23: the final exam without 30 attestation points is rejected
+DO $$
+BEGIN
+    INSERT INTO attestation (student_id, course_code, semester, attestation_1, attestation_2, final_exam)
+    VALUES ('24B031901', 'BIS201', 'Fall 2026', 10, 15, 30);
+    RAISE NOTICE 'TEST 23 FAIL: final exam saved with 25 attestation points';
+EXCEPTION WHEN check_violation THEN
+    RAISE NOTICE 'TEST 23 PASS: final exam with 10 + 15 = 25 points rejected (chk_admitted_to_final)';
+END $$;
+
+-- TEST 24: the final exam gives the total and the letter grade
+DO $$
+DECLARE v RECORD;
+BEGIN
+    UPDATE attestation SET final_exam = 38
+    WHERE student_id = '24B031926' AND course_code = 'BIS201';
+    SELECT * INTO v FROM v_attestation WHERE student_id = '24B031926' AND course_code = 'BIS201';
+    IF v.total = 93.5 AND v.letter = 'A-' THEN
+        RAISE NOTICE 'TEST 24 PASS: Saniya BIS201 28.5 + 27 + 38 = 93.5 = A-';
+    ELSE
+        RAISE NOTICE 'TEST 24 FAIL: total %, letter %', v.total, v.letter;
+    END IF;
+END $$;
+
+-- TEST 25: the grade scale
+DO $$
+BEGIN
+    IF (letter_grade(95)).letter = 'A' AND (letter_grade(87)).letter = 'B+'
+       AND (letter_grade(50)).letter = 'D' AND (letter_grade(49.9)).letter = 'F'
+       AND (letter_grade(87)).gpa_points = 3.33 THEN
+        RAISE NOTICE 'TEST 25 PASS: 95 = A, 87 = B+ (3.33), 50 = D, 49.9 = F';
+    ELSE
+        RAISE NOTICE 'TEST 25 FAIL: grade scale is wrong';
+    END IF;
+END $$;
+
+-- TEST 26: the timetable problems are found
+DO $$
+DECLARE rooms INT; students INT;
+BEGIN
+    SELECT COUNT(*) INTO rooms FROM v_room_clashes WHERE course_1 = 'DB202' AND course_2 = 'IS202';
+    SELECT COUNT(*) INTO students FROM v_schedule_clashes WHERE course_1 = 'DB202' AND course_2 = 'IS202';
+    IF rooms = 1 AND students = 2 THEN
+        RAISE NOTICE 'TEST 26 PASS: Lab 204 is double-booked on Tue 16-17 (DB202, IS202), 2 students have this clash';
+    ELSE
+        RAISE NOTICE 'TEST 26 FAIL: room clashes %, student clashes %', rooms, students;
+    END IF;
+END $$;
+
+-- TEST 27: deleting a registration also deletes its points (ON DELETE CASCADE)
+DO $$
+DECLARE n INT;
+BEGIN
+    DELETE FROM enrollments WHERE student_id = '24B031926' AND course_code = 'CS101';
+    SELECT COUNT(*) INTO n FROM attestation WHERE student_id = '24B031926' AND course_code = 'CS101';
+    IF n = 0 THEN
+        RAISE NOTICE 'TEST 27 PASS: Saniya CS101 registration deleted together with its points';
+    ELSE
+        RAISE NOTICE 'TEST 27 FAIL: % rows of points left', n;
     END IF;
 END $$;
 

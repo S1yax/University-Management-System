@@ -129,7 +129,125 @@ GROUP BY cs.session_id, cs.course_code, cs.session_number, cs.session_date, cs.s
          cs.tracked_hours, s.student_id, s.full_name
 ORDER BY cs.course_code, cs.session_number, s.full_name;
 
+-- =====================================================================
+-- Version 3 (23.11): course registration, schedule and attestation
+-- =====================================================================
+DROP VIEW IF EXISTS v_course_catalog, v_student_schedule, v_schedule_clashes,
+                    v_room_clashes, v_attestation CASCADE;
+DROP FUNCTION IF EXISTS letter_grade(NUMERIC) CASCADE;
+
+-- Letter grade of the Kazakhstan credit system (total 0-100) and its GPA points
+-- Example: SELECT * FROM letter_grade(87);  -> B+, 3.33
+CREATE FUNCTION letter_grade(p_total NUMERIC, OUT letter VARCHAR, OUT gpa_points NUMERIC) AS $$
+    SELECT g.letter, g.points
+    FROM (VALUES (95,'A',4.00),(90,'A-',3.67),(85,'B+',3.33),(80,'B',3.00),(75,'B-',2.67),
+                 (70,'C+',2.33),(65,'C',2.00),(60,'C-',1.67),(55,'D+',1.33),(50,'D',1.00),(0,'F',0.00))
+         AS g(min_total, letter, points)
+    WHERE p_total >= g.min_total
+    ORDER BY g.min_total DESC
+    LIMIT 1;
+$$ LANGUAGE sql IMMUTABLE;
+
+-- 7. Course catalog for the registration page: schedule, teacher, room and free places
+--    Pending registrations also take a place (the manager has not answered yet).
+CREATE VIEW v_course_catalog AS
+SELECT c.course_code,
+       c.title,
+       c.credits,
+       c.ects_credits,
+       c.faculty,
+       t.full_name AS teacher,
+       (ARRAY['Mon','Tue','Wed','Thu','Fri','Sat','Sun'])[c.day_of_week] AS day,
+       c.day_of_week,
+       c.start_time,
+       c.end_time,
+       r.room_number AS room,
+       c.max_places,
+       COUNT(e.enrollment_id) FILTER (WHERE e.status IN ('Pending','Approved')) AS taken_places,
+       c.max_places - COUNT(e.enrollment_id) FILTER (WHERE e.status IN ('Pending','Approved')) AS free_places
+FROM courses c
+JOIN teachers t ON t.teacher_id = c.teacher_id
+JOIN rooms r    ON r.room_id = c.room_id
+LEFT JOIN enrollments e ON e.course_code = c.course_code
+GROUP BY c.course_code, t.full_name, r.room_number
+ORDER BY c.day_of_week, c.start_time;
+
+-- 8. Weekly schedule of every student (approved and pending courses)
+CREATE VIEW v_student_schedule AS
+SELECT e.student_id,
+       s.full_name,
+       e.semester,
+       e.enrollment_id,
+       e.status,
+       cc.course_code, cc.title, cc.credits, cc.teacher, cc.day, cc.day_of_week,
+       cc.start_time, cc.end_time, cc.room
+FROM enrollments e
+JOIN students s          ON s.student_id = e.student_id
+JOIN v_course_catalog cc ON cc.course_code = e.course_code
+WHERE e.status IN ('Pending','Approved')
+ORDER BY e.student_id, cc.day_of_week, cc.start_time;
+
+-- 9. Problems in the timetable (for the manager)
+--    a) a student has two courses at the same time
+CREATE VIEW v_schedule_clashes AS
+SELECT a.student_id, a.full_name, a.semester,
+       a.course_code AS course_1, b.course_code AS course_2,
+       a.day, GREATEST(a.start_time, b.start_time) AS clash_from,
+       LEAST(a.end_time, b.end_time) AS clash_to
+FROM v_student_schedule a
+JOIN v_student_schedule b
+  ON b.student_id = a.student_id AND b.semester = a.semester
+ AND b.course_code > a.course_code
+ AND b.day_of_week = a.day_of_week
+ AND b.start_time < a.end_time AND a.start_time < b.end_time;
+
+--    b) two courses in the same room at the same time
+CREATE VIEW v_room_clashes AS
+SELECT a.room_id, r.room_number, a.course_code AS course_1, b.course_code AS course_2,
+       (ARRAY['Mon','Tue','Wed','Thu','Fri','Sat','Sun'])[a.day_of_week] AS day,
+       GREATEST(a.start_time, b.start_time) AS clash_from,
+       LEAST(a.end_time, b.end_time) AS clash_to
+FROM courses a
+JOIN courses b ON b.room_id = a.room_id AND b.course_code > a.course_code
+              AND b.day_of_week = a.day_of_week
+              AND b.start_time < a.end_time AND a.start_time < b.end_time
+JOIN rooms r   ON r.room_id = a.room_id;
+
+-- 10. Attestation page: points, admission to the final exam and the grade
+--     admitted     = at least 30 of 60 points for the two attestations
+--     total        = attestation 1 + attestation 2 + final exam
+--     letter       = only when the final exam has points
+--     max_possible = what the student can still reach (the final exam counted as 40)
+CREATE VIEW v_attestation AS
+SELECT a.student_id,
+       s.full_name,
+       a.course_code,
+       c.title,
+       c.ects_credits,
+       a.semester,
+       a.attestation_1,
+       a.attestation_2,
+       COALESCE(a.attestation_1, 0) + COALESCE(a.attestation_2, 0)              AS rating,
+       (COALESCE(a.attestation_1, 0) + COALESCE(a.attestation_2, 0)) >= 30       AS admitted,
+       a.final_exam,
+       CASE WHEN a.final_exam IS NOT NULL
+            THEN a.attestation_1 + a.attestation_2 + a.final_exam END            AS total,
+       CASE WHEN a.final_exam IS NOT NULL
+            THEN (letter_grade(a.attestation_1 + a.attestation_2 + a.final_exam)).letter END AS letter,
+       COALESCE(a.attestation_1, 0) + COALESCE(a.attestation_2, 0)
+         + COALESCE(a.final_exam, 40)                                            AS max_possible,
+       a.updated_by,
+       a.updated_at
+FROM attestation a
+JOIN students s ON s.student_id = a.student_id
+JOIN courses c  ON c.course_code = a.course_code
+ORDER BY a.student_id, a.course_code;
+
 -- How to look at them:
+--   SELECT * FROM v_course_catalog;
+--   SELECT * FROM v_student_schedule WHERE student_id = '24B031901';
+--   SELECT * FROM v_schedule_clashes;   SELECT * FROM v_room_clashes;
+--   SELECT * FROM v_attestation WHERE student_id = '24B031926';
 --   SELECT * FROM v_hourly_tracker WHERE session_id = 'ses-8';
 --   SELECT * FROM v_at_risk_students;
 --   SELECT * FROM v_course_places;

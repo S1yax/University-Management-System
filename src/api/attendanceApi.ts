@@ -46,7 +46,8 @@ export interface ApiAnswer {
   distanceM?: number;
 }
 
-async function call<T>(path: string, init?: RequestInit): Promise<{ code: number; body: T }> {
+/** Calls the server. Shared by all API files in src/api/. */
+export async function call<T>(path: string, init?: RequestInit): Promise<{ code: number; body: T }> {
   if (!API_URL) throw new Error('API is not configured');
   const res = await fetch(API_URL + path, {
     ...init,

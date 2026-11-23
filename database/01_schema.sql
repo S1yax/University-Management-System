@@ -11,8 +11,19 @@
 --   class_sessions.tracked_hours = how many hourly check-ins the lesson has.
 --   attendance_records.hour_slot = which hour this check-in is for.
 --   The unique rule is now (session, student, hour), the same as the website.
+--
+-- Version 3 (23.11): all subjects, course registration and attestation.
+--   courses now have a schedule (day, time, room), ECTS credits and a faculty.
+--   8 subjects: the 5 from the website's COURSES list + DB202, FIN201, ENG102
+--   from the Discipline Schedule page.
+--   register_for_course() checks free places, the 21-credit limit and
+--   time clashes with the student's other courses.
+--   attestation: 1st and 2nd attestation (0-30 each) and the final exam (0-40).
 -- =====================================================================
 
+DROP TABLE IF EXISTS attestation CASCADE;
+DROP FUNCTION IF EXISTS register_for_course(VARCHAR, VARCHAR, VARCHAR) CASCADE;
+DROP FUNCTION IF EXISTS check_attestation_enrollment() CASCADE;
 DROP TABLE IF EXISTS attendance_records CASCADE;
 DROP FUNCTION IF EXISTS hour_slot_for(VARCHAR, TIMESTAMP) CASCADE;
 DROP FUNCTION IF EXISTS check_hour_slot() CASCADE;
@@ -54,13 +65,20 @@ CREATE TABLE rooms (
     wifi_bssid    VARCHAR(50)
 );
 
--- 4. COURSES: every course has one main teacher
+-- 4. COURSES: every course has one main teacher and one weekly lesson
 CREATE TABLE courses (
     course_code  VARCHAR(15)  PRIMARY KEY,
     title        VARCHAR(120) NOT NULL,
-    credits      INT          NOT NULL CHECK (credits BETWEEN 1 AND 10),
+    credits      INT          NOT NULL CHECK (credits BETWEEN 1 AND 10),  -- credits for the 21-credit limit
+    ects_credits INT          CHECK (ects_credits BETWEEN 1 AND 15),     -- ECTS, as on the Discipline Schedule page
+    faculty      VARCHAR(60)  NOT NULL DEFAULT 'SITE',
     max_places   INT          NOT NULL CHECK (max_places > 0),
-    teacher_id   VARCHAR(15)  NOT NULL REFERENCES teachers(teacher_id)
+    teacher_id   VARCHAR(15)  NOT NULL REFERENCES teachers(teacher_id),
+    -- weekly lesson: 1 = Monday ... 7 = Sunday
+    day_of_week  SMALLINT     NOT NULL CHECK (day_of_week BETWEEN 1 AND 7),
+    start_time   TIME         NOT NULL,
+    end_time     TIME         NOT NULL CHECK (end_time > start_time),
+    room_id      VARCHAR(20)  NOT NULL REFERENCES rooms(room_id)
 );
 
 -- 5. ENROLLMENTS: which student is registered for which course
@@ -153,8 +171,106 @@ RETURNS SMALLINT AS $$
     WHERE cs.session_id = p_session_id;
 $$ LANGUAGE sql STABLE;
 
+-- 8. ATTESTATION: points of one student in one course
+--    1st attestation 0-30, 2nd attestation 0-30, final exam 0-40 (total 0-100).
+CREATE TABLE attestation (
+    student_id     VARCHAR(15)  NOT NULL,
+    course_code    VARCHAR(15)  NOT NULL,
+    semester       VARCHAR(20)  NOT NULL,
+    attestation_1  NUMERIC(4,1) CHECK (attestation_1 BETWEEN 0 AND 30),
+    attestation_2  NUMERIC(4,1) CHECK (attestation_2 BETWEEN 0 AND 30),
+    final_exam     NUMERIC(4,1) CHECK (final_exam BETWEEN 0 AND 40),
+    updated_by     VARCHAR(100),
+    updated_at     TIMESTAMP    NOT NULL DEFAULT LOCALTIMESTAMP(0),
+    PRIMARY KEY (student_id, course_code, semester),
+    -- points only for a student who is registered for this course in this semester
+    CONSTRAINT fk_attestation_enrollment FOREIGN KEY (student_id, course_code, semester)
+        REFERENCES enrollments (student_id, course_code, semester) ON DELETE CASCADE,
+    -- the final exam is allowed only with at least 30 points for the two attestations
+    CONSTRAINT chk_admitted_to_final CHECK (
+        final_exam IS NULL
+        OR (attestation_1 IS NOT NULL AND attestation_2 IS NOT NULL
+            AND attestation_1 + attestation_2 >= 30))
+);
+
+-- Rule: points only for an APPROVED registration (a Pending one is not a student of the course yet)
+CREATE FUNCTION check_attestation_enrollment() RETURNS TRIGGER AS $$
+DECLARE
+    st VARCHAR;
+BEGIN
+    SELECT status INTO st FROM enrollments
+    WHERE student_id = NEW.student_id AND course_code = NEW.course_code AND semester = NEW.semester;
+    IF st IS NULL THEN
+        RAISE EXCEPTION 'Student % is not registered for % in %',
+            NEW.student_id, NEW.course_code, NEW.semester
+            USING ERRCODE = 'foreign_key_violation', CONSTRAINT = 'fk_attestation_enrollment';
+    ELSIF st <> 'Approved' THEN
+        RAISE EXCEPTION 'The registration of % for % is % (not approved yet)',
+            NEW.student_id, NEW.course_code, st
+            USING ERRCODE = 'UMS05';
+    END IF;
+    RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+
+CREATE TRIGGER trg_attestation_enrollment
+    BEFORE INSERT OR UPDATE ON attestation
+    FOR EACH ROW EXECUTE FUNCTION check_attestation_enrollment();
+
+-- Course registration with all checks. The backend calls only this function.
+--   UMS01 = no free places, UMS02 = more than 21 credits, UMS03 = time clash,
+--   23505 (unique_violation) = already registered, 23503 = student or course does not exist.
+-- Example: SELECT * FROM register_for_course('24B031901', 'NET203', 'Fall 2026');
+CREATE FUNCTION register_for_course(p_student VARCHAR, p_course VARCHAR, p_semester VARCHAR)
+RETURNS enrollments AS $$
+DECLARE
+    c        courses%ROWTYPE;
+    taken    INT;
+    credits_now INT;
+    clash    VARCHAR;
+    result   enrollments%ROWTYPE;
+BEGIN
+    SELECT * INTO c FROM courses WHERE course_code = p_course FOR UPDATE;  -- lock: two students cannot take the last place
+    IF NOT FOUND THEN
+        RAISE EXCEPTION 'Course % does not exist', p_course USING ERRCODE = 'foreign_key_violation';
+    END IF;
+
+    SELECT COUNT(*) INTO taken FROM enrollments
+    WHERE course_code = p_course AND semester = p_semester AND status IN ('Pending', 'Approved');
+    IF taken >= c.max_places THEN
+        RAISE EXCEPTION 'No free places in % (% of %)', p_course, taken, c.max_places USING ERRCODE = 'UMS01';
+    END IF;
+
+    SELECT COALESCE(SUM(co.credits), 0) INTO credits_now
+    FROM enrollments e JOIN courses co ON co.course_code = e.course_code
+    WHERE e.student_id = p_student AND e.semester = p_semester
+      AND e.status IN ('Pending', 'Approved') AND e.course_code <> p_course;
+    IF credits_now + c.credits > 21 THEN
+        RAISE EXCEPTION 'Credit limit: % + % > 21', credits_now, c.credits USING ERRCODE = 'UMS02';
+    END IF;
+
+    SELECT co.course_code INTO clash
+    FROM enrollments e JOIN courses co ON co.course_code = e.course_code
+    WHERE e.student_id = p_student AND e.semester = p_semester
+      AND e.status IN ('Pending', 'Approved') AND e.course_code <> p_course
+      AND co.day_of_week = c.day_of_week
+      AND co.start_time < c.end_time AND c.start_time < co.end_time
+    LIMIT 1;
+    IF clash IS NOT NULL THEN
+        RAISE EXCEPTION 'Time clash with %', clash USING ERRCODE = 'UMS03';
+    END IF;
+
+    INSERT INTO enrollments (student_id, course_code, semester, status)
+    VALUES (p_student, p_course, p_semester, 'Pending')
+    RETURNING * INTO result;
+    RETURN result;
+END;
+$$ LANGUAGE plpgsql;
+
 -- Indexes (make search faster)
 -- (session_id, student_id, hour_slot) is already indexed by uq_session_student_hour.
 CREATE INDEX idx_attendance_student      ON attendance_records (student_id);
 CREATE INDEX idx_enrollments_course_sem  ON enrollments (course_code, semester);
 CREATE INDEX idx_sessions_course         ON class_sessions (course_code);
+CREATE INDEX idx_enrollments_student     ON enrollments (student_id, semester);
+CREATE INDEX idx_courses_room_day        ON courses (room_id, day_of_week);
