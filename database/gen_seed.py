@@ -156,6 +156,15 @@ L.append("INSERT INTO attendance_records (session_id, student_id, hour_slot, che
 L.append(",\n".join(f" ({q(a['sessionId'])}, {q(sid[a['studentId']])}, {q(a.get('hourSlot', '1'))}, {q(a['checkInTime'])}, {q(a['gpsLatitude'])}, {q(a['gpsLongitude'])}, {q(a['distanceToCenterM'])}, {q(a['verificationStatus'])}, {q(a.get('rejectionReason'))}, {q(a.get('isOverride', 'false'))}, {q(a.get('overrideBy'))}, {q(a.get('overrideReason'))})" for a in A) + ";\n")
 L.append("INSERT INTO attestation (student_id, course_code, semester, attestation_1, attestation_2, final_exam, updated_by) VALUES")
 L.append(",\n".join(f" ({q(saniya)}, {q(a['code'])}, 'Fall 2026', {q(a['attestation1'])}, {q(a['attestation2'])}, NULL, {q(teacher_name[course[a['code']]['teacher']])})" for a in ATT) + ";\n")
+# Login accounts: every student and teacher + the manager and admin from the website.
+# No passwords yet (NULL): like on the website, each user sets one at the first login.
+staff = [u for u in U if u['role'] in ('MANAGER', 'ADMIN')]
+L.append("-- Accounts without a password: the password is set at the first login.")
+L.append("INSERT INTO user_credentials (username, role, student_id)\nSELECT username, 'STUDENT', student_id FROM students;\n")
+L.append("INSERT INTO user_credentials (username, role, teacher_id)\nSELECT username, 'TEACHER', teacher_id FROM teachers;\n")
+L.append("INSERT INTO user_credentials (username, role) VALUES")
+L.append(",\n".join(f" ({q(u['username'])}, {q(u['role'])})" for u in staff) + ";\n")
 open(out, 'w').write("\n".join(L))
 print(f"students={len(students)} teachers={len(teachers)} rooms={len(rooms)} courses={len(courses)} "
-      f"enrollments={len(E)} sessions={len(sessions)} checkins={len(A)} attestation={len(ATT)}")
+      f"enrollments={len(E)} sessions={len(sessions)} checkins={len(A)} attestation={len(ATT)} "
+      f"accounts={len(students) + len(teachers) + len(staff)}")

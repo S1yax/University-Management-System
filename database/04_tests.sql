@@ -5,6 +5,7 @@
 --
 -- Version 2 (16.11): tests 1-8 check the every-hour tracker.
 -- Version 3 (23.11): tests 14-27 check course registration, the schedule and attestation.
+-- Version 4 (26.11): tests 28-37 check the login accounts and passwords.
 -- Students used below:
 --   24B031926 = Saniya,  24B031901 = Mubarak,  24B031787 = Amir
 -- ses-8 = BIS201 week 8, Monday 02.11, 16:00-19:00, tracked every hour
@@ -330,6 +331,172 @@ BEGIN
         RAISE NOTICE 'TEST 27 PASS: Saniya CS101 registration deleted together with its points';
     ELSE
         RAISE NOTICE 'TEST 27 FAIL: % rows of points left', n;
+    END IF;
+END $$;
+
+-- TEST 28: every user of the website has one login account, without a password yet
+DO $$
+DECLARE total INT; st INT; te INT; other INT; no_pw INT; wrong INT;
+BEGIN
+    SELECT COUNT(*), COUNT(*) FILTER (WHERE role = 'STUDENT'), COUNT(*) FILTER (WHERE role = 'TEACHER'),
+           COUNT(*) FILTER (WHERE role IN ('MANAGER', 'ADMIN')), COUNT(*) FILTER (WHERE password_hash IS NULL)
+    INTO total, st, te, other, no_pw FROM user_credentials;
+    -- the login of a student or teacher is the same as in the students / teachers table
+    SELECT COUNT(*) INTO wrong FROM user_credentials u
+    LEFT JOIN students s ON s.student_id = u.student_id
+    LEFT JOIN teachers t ON t.teacher_id = u.teacher_id
+    WHERE u.username <> COALESCE(s.username, t.username, u.username);
+    IF total = 17 AND st = 10 AND te = 5 AND other = 2 AND no_pw = 17 AND wrong = 0 THEN
+        RAISE NOTICE 'TEST 28 PASS: 17 accounts (10 students, 5 teachers, manager, admin), no passwords yet, logins match';
+    ELSE
+        RAISE NOTICE 'TEST 28 FAIL: total % students % teachers % other % without password % wrong logins %',
+            total, st, te, other, no_pw, wrong;
+    END IF;
+END $$;
+
+-- TEST 29: a student account must point to a student, a teacher account to a teacher
+DO $$
+DECLARE ok INT := 0;
+BEGIN
+    BEGIN
+        INSERT INTO user_credentials (username, role) VALUES ('x_student', 'STUDENT');
+    EXCEPTION WHEN check_violation THEN ok := ok + 1;
+    END;
+    BEGIN
+        INSERT INTO user_credentials (username, role, student_id) VALUES ('x_teacher', 'TEACHER', '24B031901');
+    EXCEPTION WHEN check_violation THEN ok := ok + 1;
+    END;
+    BEGIN
+        INSERT INTO user_credentials (username, role) VALUES ('x_boss', 'DEAN');
+    EXCEPTION WHEN check_violation THEN ok := ok + 1;
+    END;
+    IF ok = 3 THEN
+        RAISE NOTICE 'TEST 29 PASS: student without student_id, teacher with student_id and role DEAN rejected';
+    ELSE
+        RAISE NOTICE 'TEST 29 FAIL: only % of 3 wrong accounts rejected', ok;
+    END IF;
+END $$;
+
+-- TEST 30: an account for an unknown student or a second account for the same student is rejected
+DO $$
+DECLARE ok INT := 0;
+BEGIN
+    BEGIN
+        INSERT INTO user_credentials (username, role, student_id) VALUES ('x_ghost', 'STUDENT', '99B000000');
+    EXCEPTION WHEN foreign_key_violation THEN ok := ok + 1;
+    END;
+    BEGIN
+        INSERT INTO user_credentials (username, role, student_id) VALUES ('m_nurlybay2', 'STUDENT', '24B031901');
+    EXCEPTION WHEN unique_violation THEN ok := ok + 1;
+    END;
+    IF ok = 2 THEN
+        RAISE NOTICE 'TEST 30 PASS: unknown student and a 2nd account for Mubarak rejected';
+    ELSE
+        RAISE NOTICE 'TEST 30 FAIL: only % of 2 rejected', ok;
+    END IF;
+END $$;
+
+-- TEST 31: a hash without its salt is rejected
+DO $$
+BEGIN
+    UPDATE user_credentials SET password_hash = 'aGFzaA==' WHERE username = 'm_nurlybay';
+    RAISE NOTICE 'TEST 31 FAIL: a hash without salt was saved';
+EXCEPTION WHEN check_violation THEN
+    RAISE NOTICE 'TEST 31 PASS: hash without salt, iterations and date rejected (chk_password_parts)';
+END $$;
+
+-- TEST 32: the first password is saved, the history stays empty
+DO $$
+DECLARE acc user_credentials; n INT;
+BEGIN
+    acc := set_password('m_nurlybay', 'hash-1', 'salt-1', 210000);
+    SELECT COUNT(*) INTO n FROM password_history WHERE username = 'm_nurlybay';
+    IF acc.password_hash = 'hash-1' AND acc.salt = 'salt-1' AND acc.iterations = 210000
+       AND acc.password_changed_at IS NOT NULL AND n = 0 THEN
+        RAISE NOTICE 'TEST 32 PASS: first password of Mubarak saved, history empty';
+    ELSE
+        RAISE NOTICE 'TEST 32 FAIL: hash %, history %', acc.password_hash, n;
+    END IF;
+END $$;
+
+-- TEST 33: after 3 more changes only the 2 previous passwords are kept (current + 2 = last 3)
+DO $$
+DECLARE acc user_credentials; kept TEXT;
+BEGIN
+    PERFORM set_password('m_nurlybay', 'hash-2', 'salt-2', 210000);
+    PERFORM set_password('m_nurlybay', 'hash-3', 'salt-3', 210000);
+    acc := set_password('m_nurlybay', 'hash-4', 'salt-4', 210000);
+    SELECT string_agg(password_hash, ',' ORDER BY history_id DESC) INTO kept
+    FROM password_history WHERE username = 'm_nurlybay';
+    IF acc.password_hash = 'hash-4' AND kept = 'hash-3,hash-2' THEN
+        RAISE NOTICE 'TEST 33 PASS: current hash-4, history hash-3, hash-2 (hash-1 forgotten)';
+    ELSE
+        RAISE NOTICE 'TEST 33 FAIL: current %, history %', acc.password_hash, kept;
+    END IF;
+END $$;
+
+-- TEST 34: the 5th wrong password locks the login for 30 seconds
+DO $$
+DECLARE acc user_credentials; after4 user_credentials;
+BEGIN
+    PERFORM login_failed('a_bagdat');
+    PERFORM login_failed('a_bagdat');
+    PERFORM login_failed('a_bagdat');
+    after4 := login_failed('a_bagdat');
+    acc := login_failed('a_bagdat');
+    IF after4.failed_attempts = 4 AND after4.locked_until IS NULL
+       AND acc.failed_attempts = 5 AND acc.locked_until = now() + INTERVAL '30 seconds' THEN
+        RAISE NOTICE 'TEST 34 PASS: 4 mistakes - not locked, 5th mistake - locked for 30 s';
+    ELSE
+        RAISE NOTICE 'TEST 34 FAIL: after 4: % %, after 5: % %',
+            after4.failed_attempts, after4.locked_until, acc.failed_attempts, acc.locked_until;
+    END IF;
+END $$;
+
+-- TEST 35: while locked, more mistakes do not extend the lock; after the lock the count starts again
+DO $$
+DECLARE locked user_credentials; again user_credentials;
+BEGIN
+    locked := login_failed('a_bagdat');                          -- 6th mistake, still locked
+    UPDATE user_credentials SET locked_until = now() - INTERVAL '1 second' WHERE username = 'a_bagdat';
+    again := login_failed('a_bagdat');                           -- lock is over
+    IF locked.failed_attempts = 5 AND locked.locked_until = now() + INTERVAL '30 seconds'
+       AND again.failed_attempts = 1 AND again.locked_until IS NULL THEN
+        RAISE NOTICE 'TEST 35 PASS: 6th mistake while locked not counted; after the lock the count is 1';
+    ELSE
+        RAISE NOTICE 'TEST 35 FAIL: locked % %, after lock % %',
+            locked.failed_attempts, locked.locked_until, again.failed_attempts, again.locked_until;
+    END IF;
+END $$;
+
+-- TEST 36: a correct password clears the mistakes; an unknown login cannot get a password
+DO $$
+DECLARE n INT; ok BOOLEAN := false;
+BEGIN
+    PERFORM login_ok('a_bagdat');
+    SELECT failed_attempts INTO n FROM user_credentials WHERE username = 'a_bagdat';
+    BEGIN
+        PERFORM set_password('nobody', 'hash', 'salt', 210000);
+    EXCEPTION WHEN foreign_key_violation THEN ok := true;
+    END;
+    IF n = 0 AND ok AND login_failed('nobody') IS NULL THEN
+        RAISE NOTICE 'TEST 36 PASS: login_ok resets mistakes to 0; unknown login rejected';
+    ELSE
+        RAISE NOTICE 'TEST 36 FAIL: mistakes %, unknown login rejected %', n, ok;
+    END IF;
+END $$;
+
+-- TEST 37: deleting a student also deletes the account and its password history (ON DELETE CASCADE)
+DO $$
+DECLARE a INT; h INT;
+BEGIN
+    DELETE FROM students WHERE student_id = '24B031901';
+    SELECT COUNT(*) INTO a FROM user_credentials WHERE username = 'm_nurlybay';
+    SELECT COUNT(*) INTO h FROM password_history WHERE username = 'm_nurlybay';
+    IF a = 0 AND h = 0 THEN
+        RAISE NOTICE 'TEST 37 PASS: Mubarak deleted together with his account and 2 old passwords';
+    ELSE
+        RAISE NOTICE 'TEST 37 FAIL: % accounts and % old passwords left', a, h;
     END IF;
 END $$;
 

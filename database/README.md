@@ -6,6 +6,71 @@ The real database for our KBTU UMS website. It follows the ERD on the
 "Database & ERD" page. The SQL on that page created only 3 tables, so
 this version adds `students`, `teachers`, `courses` and `enrollments`.
 
+## Version 4 (26.11): passwords for the login on the server
+
+Mubarak made the tables, Alua makes `/api/login`, change-password and the guard on the server.
+The password itself is **never stored**, only its hash.
+
+### `user_credentials`: one account per user (17 accounts in `02_seed.sql`)
+
+| Column | Type | Meaning |
+|---|---|---|
+| `username` | `VARCHAR(50)` PK | the login, e.g. `m_nurlybay`, `t_issabek`, `admin` |
+| `role` | `VARCHAR(10)` | `STUDENT`, `TEACHER`, `MANAGER` or `ADMIN` |
+| `student_id` | `VARCHAR(15)` | for a student, e.g. `24B031901` (FK to `students`), otherwise `NULL` |
+| `teacher_id` | `VARCHAR(15)` | for a teacher, e.g. `u-6` (FK to `teachers`), otherwise `NULL` |
+| `password_hash` | `TEXT` | PBKDF2-SHA256 hash, base64, 32 bytes. `NULL` = no password yet (first login) |
+| `salt` | `TEXT` | random salt, base64, 16 bytes |
+| `iterations` | `INT` | `210000`, the same as the website (`PBKDF2_ITERATIONS`) |
+| `password_changed_at` | `TIMESTAMP` | when the password was set (for the once-per-semester rule) |
+| `failed_attempts` | `INT` | wrong passwords in a row |
+| `locked_until` | `TIMESTAMP` | the login is locked until this time, `NULL` = not locked |
+
+Rules: a `STUDENT` account must have `student_id`, a `TEACHER` must have `teacher_id`,
+`MANAGER`/`ADMIN` have neither. One account per student or teacher. Hash, salt, iterations and date
+are saved together or not at all.
+
+### `password_history`: the 2 previous passwords of a user
+
+`username`, `password_hash`, `salt`, `iterations`, `used_until`. Together with the current password
+these are the **last 3**, so the new password must not match any of them (`PASSWORD_HISTORY_SIZE = 3`).
+
+### Functions for the server
+
+| Function | When to call |
+|---|---|
+| `set_password(username, hash, salt, iterations)` | first password or a change. Moves the old one to the history, keeps only 2 old ones, clears the lock |
+| `login_failed(username)` | after a wrong password. The 5th mistake locks the login for 30 s (like `loginLockout.ts`). Returns the row, `NULL` for an unknown login |
+| `login_ok(username)` | after a correct password: mistakes back to 0 |
+
+### How `/api/login` can use it (Node.js)
+
+The server makes the same hash as the website: `crypto.pbkdf2Sync(password, salt, 210000, 32, 'sha256')`
+gives exactly the same base64 as `crypto.subtle` in `src/utils/credentials.ts` (checked).
+
+```js
+import { pbkdf2Sync, randomBytes, timingSafeEqual } from 'node:crypto';
+import { pool } from './db.js';
+const hashOf = (password, saltB64, iterations) =>
+  pbkdf2Sync(password, Buffer.from(saltB64, 'base64'), iterations, 32, 'sha256');
+
+// 1. find the account
+const { rows } = await pool.query('SELECT * FROM user_credentials WHERE username = $1', [login]);
+const acc = rows[0];
+// no account -> 401; acc.locked_until > now -> 423 (locked); acc.password_hash = null -> first login
+// 2. check the password
+const ok = timingSafeEqual(hashOf(password, acc.salt, acc.iterations), Buffer.from(acc.password_hash, 'base64'));
+await pool.query(ok ? 'SELECT login_ok($1)' : 'SELECT login_failed($1)', [login]);
+// 3. ok -> token with acc.role and acc.student_id (or acc.teacher_id)
+
+// new password (after the policy check and the check against the current hash + password_history):
+const salt = randomBytes(16).toString('base64');
+await pool.query('SELECT set_password($1, $2, $3, 210000)', [login, hashOf(newPassword, salt, 210000).toString('base64'), salt]);
+```
+
+Note: the website also forgets old mistakes after 15 minutes. The database does not do this yet:
+the count goes back to 0 only after a correct password or after a lock.
+
 ## Version 3 (23.11): all subjects, registration, attestation
 
 - **8 subjects**: the 5 from the website's `COURSES` + `DB202`, `FIN201`, `ENG102` from the Discipline Schedule page.
@@ -38,13 +103,13 @@ A 3-hour lesson (Mon 16:00–19:00) now has a check-in for every hour, the same 
 
 | File | What it does |
 |---|---|
-| `01_schema.sql` | 8 tables with primary keys, foreign keys, UNIQUE and CHECK rules, ON DELETE CASCADE, indexes, the hour trigger, `hour_slot_for()`, `register_for_course()` and the attestation trigger |
-| `02_seed.sql` | Test data from the website: 10 students, 5 teachers, 5 rooms, 8 courses, 24 registrations, 45 lessons, 50 check-ins, attestation of 5 courses |
+| `01_schema.sql` | 10 tables with primary keys, foreign keys, UNIQUE and CHECK rules, ON DELETE CASCADE, indexes, the hour trigger, `hour_slot_for()`, `register_for_course()`, the attestation trigger, `set_password()`, `login_failed()`, `login_ok()` |
+| `02_seed.sql` | Test data from the website: 10 students, 5 teachers, 5 rooms, 8 courses, 24 registrations, 45 lessons, 50 check-ins, attestation of 5 courses, 17 login accounts (no passwords yet) |
 | `gen_seed.py` | Builds `02_seed.sql` from `src/data/mockData.ts` and the Uninet pages |
 | `03_dashboards.sql` | `attendance_summary(date)`, `letter_grade()` and 11 views: attendance, at-risk students, free places, results per hour, CSV export, hourly tracker, course catalog, student timetable, timetable clashes, attestation |
-| `04_tests.sql` | 27 tests. Each prints PASS or FAIL. All changes are rolled back |
+| `04_tests.sql` | 37 tests (28-37: accounts and passwords). Each prints PASS or FAIL. All changes are rolled back |
 | `05_load_300.sql` | Amir's load test (300 students in 3 minutes). Still passes on version 3 |
-| `test_results.txt` | Result of the last test run (13 of 13 PASS) |
+| `test_results.txt` | Result of the last test run (37 of 37 PASS) |
 
 ## How to run (pgAdmin)
 
