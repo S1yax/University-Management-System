@@ -58,8 +58,10 @@ interface NavSection {
 export const Sidebar: React.FC<SidebarProps> = ({ isMobileOpen, onCloseMobile }) => {
   const { currentUser, activePath, setActivePath, t } = useApp();
 
-  // Accordion state for collapsible sections (all expanded by default matching screenshots)
-  const [collapsedSections, setCollapsedSections] = useState<Record<string, boolean>>({});
+  // Accordion state for collapsible sections (Uninet sections expanded by default matching screenshots)
+  const [collapsedSections, setCollapsedSections] = useState<Record<string, boolean>>({
+    'project-team39': true,
+  });
 
   const toggleSection = (sectionId: string) => {
     setCollapsedSections((prev) => ({
@@ -82,7 +84,7 @@ export const Sidebar: React.FC<SidebarProps> = ({ isMobileOpen, onCloseMobile })
       title: 'ACADEMIC',
       items: [
         { id: 'transcript', label: 'Transcript', icon: FileText },
-        { id: 'journal', label: 'Journal', icon: BookOpen, badge: 'GPS', badgeColor: 'bg-blue-500/20 text-blue-300 border border-blue-400/30' },
+        { id: 'journal', label: 'Journal', icon: BookOpen },
         { id: 'syllabus', label: 'Syllabus', icon: FileSpreadsheet },
         { id: 'attestation', label: 'Attestation', icon: BarChart3 },
         { id: 'course-materials', label: 'Course Materials', icon: FolderArchive },
