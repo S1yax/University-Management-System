@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { useApp } from '../../context/AppContext';
+import { selectSession, useApp } from '../../context/AppContext';
 import {
   MapPin,
   Compass,
@@ -32,6 +32,7 @@ export const AttendanceCheckInPage: React.FC = () => {
   const {
     currentUser,
     classSessions,
+    demoTime,
     attendanceRecords,
     checkInGPSAsync,
     requestManualReview,
@@ -42,10 +43,10 @@ export const AttendanceCheckInPage: React.FC = () => {
   } = useApp();
 
   // Active session for BIS201 (Week 8)
-  const activeSession = classSessions.find((s) => s.id === 'ses-8') || classSessions[7];
+  const activeSession = selectSession(classSessions, demoTime);
 
   // Time Window Check (Monday 16:00 - 19:00 / с 4 до 7 в понедельник)
-  const sessionTimeStatus = checkSessionTime(activeSession?.id || 'ses-8');
+  const sessionTimeStatus = checkSessionTime(activeSession?.id || '');
 
   // Check hourly records for this 3-hour session
   const hour1Record = attendanceRecords.find(
@@ -79,6 +80,7 @@ export const AttendanceCheckInPage: React.FC = () => {
 
   const [mapView, setMapView] = useState<'LEAFLET' | 'ALMATY_SCHEMATIC' | 'RADAR'>('LEAFLET');
   const [isDetectingGps, setIsDetectingGps] = useState(false);
+  const [gpsAcquired, setGpsAcquired] = useState(false);
   const [gpsErrorMsg, setGpsErrorMsg] = useState<string | null>(null);
   const [isLocating, setIsLocating] = useState(false);
 
@@ -149,11 +151,13 @@ export const AttendanceCheckInPage: React.FC = () => {
       return;
     }
 
+    setGpsAcquired(false);
     setIsDetectingGps(true);
     setGpsErrorMsg(null);
 
     navigator.geolocation.getCurrentPosition(
       (pos) => {
+        setGpsAcquired(true);
         setIsDetectingGps(false);
         setStudentCoords({
           lat: pos.coords.latitude,
@@ -187,6 +191,10 @@ export const AttendanceCheckInPage: React.FC = () => {
   // Perform GPS Check-in verification
   const handlePerformCheckIn = (forceAttempt: boolean = false) => {
     if (!activeSession || !currentUser) return;
+    if (!demoTime && (!gpsAcquired || studentCoords.source !== 'REAL_BROWSER')) {
+      setGpsErrorMsg('Detect your current location before submitting a GPS check-in.');
+      return;
+    }
 
     // Check time condition
     if (!sessionTimeStatus.active && !forceAttempt) {
@@ -252,10 +260,11 @@ export const AttendanceCheckInPage: React.FC = () => {
     }
   };
 
-  const handleSendManualReview = (e: React.FormEvent) => {
+  const handleSendManualReview = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!activeSession) return;
-    requestManualReview(activeSession.id, manualReviewReason);
+    const result = await requestManualReview(activeSession.id, manualReviewReason);
+    if (!result.success) return;
     setReviewSentToast(true);
     setShowManualReviewForm(false);
     setTimeout(() => setReviewSentToast(false), 5000);
@@ -263,7 +272,7 @@ export const AttendanceCheckInPage: React.FC = () => {
 
   // Student's attendance rate for BIS201
   const bis201Rate = currentUser
-    ? getStudentAttendanceRate(currentUser.id, 'BIS201')
+    ? getStudentAttendanceRate(currentUser.id, activeSession?.courseCode ?? '')
     : { attended: 0, total: 8, percentage: 0, isAtRisk: false };
 
   return (
@@ -1048,7 +1057,7 @@ export const AttendanceCheckInPage: React.FC = () => {
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
           <div>
             <h3 className="text-base font-extrabold text-[#0F1F3D]">
-              История посещаемости курса BIS201
+              Attendance history
             </h3>
             <p className="text-xs text-slate-500 mt-0.5">
               Текущий показатель: {bis201Rate.attended} из {bis201Rate.total} занятий ({bis201Rate.percentage}%)
@@ -1099,7 +1108,7 @@ export const AttendanceCheckInPage: React.FC = () => {
             </thead>
             <tbody className="divide-y divide-[#D6E2F5]">
               {attendanceRecords
-                .filter((r) => r.studentId === currentUser?.id && r.courseCode === 'BIS201')
+                .filter((r) => r.studentId === currentUser?.id)
                 .map((record) => (
                   <tr key={record.id} className="hover:bg-[#F5F8FD]/50 transition-colors">
                     <td className="py-2.5 px-3 font-semibold text-[#0F1F3D]">

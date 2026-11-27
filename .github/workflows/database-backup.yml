@@ -1,0 +1,71 @@
+name: Encrypted university database backup
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: '30 21 * * *'
+permissions:
+  contents: read
+concurrency:
+  group: university-database-backup
+  cancel-in-progress: false
+jobs:
+  backup:
+    if: ${{ vars.UMS_BACKUPS_ENABLED == 'true' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      PGHOST: ${{ secrets.UMS_BACKUP_PGHOST }}
+      PGPORT: ${{ secrets.UMS_BACKUP_PGPORT }}
+      PGUSER: ${{ secrets.UMS_BACKUP_PGUSER }}
+      PGPASSWORD: ${{ secrets.UMS_BACKUP_PGPASSWORD }}
+      PGDATABASE: ${{ secrets.UMS_BACKUP_PGDATABASE }}
+      PG_CA: ${{ secrets.UMS_BACKUP_PG_CA }}
+      BACKUP_KEY: ${{ secrets.UMS_BACKUP_ENCRYPTION_KEY }}
+      PGSSLMODE: verify-full
+    steps:
+      - name: Create and verify the encrypted archive
+        shell: bash
+        run: |
+          set -euo pipefail
+          umask 077
+          for key in PGHOST PGPORT PGUSER PGPASSWORD PGDATABASE PG_CA BACKUP_KEY; do
+            if [[ -z "${!key}" ]]; then echo "::error::Missing backup secret $key"; exit 1; fi
+          done
+          work="$(mktemp -d)"
+          container=""
+          cleanup() {
+            if [[ -n "$container" ]]; then docker rm -f "$container" >/dev/null 2>&1 || true; fi
+            rm -rf -- "$work"
+          }
+          trap cleanup EXIT
+          printf '%s\n' "$PG_CA" > "$work/ca.crt"
+          # A newer pg_dump client can read older supported Supabase versions.
+          container="$(docker create --user "$(id -u):$(id -g)" --network host \
+            --mount "type=bind,source=$work,destination=/backup" \
+            -e PGHOST -e PGPORT -e PGUSER -e PGPASSWORD -e PGDATABASE -e PGSSLMODE \
+            -e PGSSLROOTCERT=/backup/ca.crt postgres:18 \
+            pg_dump --format=custom --schema=public --no-owner --no-acl \
+            --exclude-table-data=public.portal_sessions --file=/backup/ums.dump)"
+          docker start -a "$container"
+          docker run --rm --user "$(id -u):$(id -g)" \
+            --mount "type=bind,source=$work,destination=/backup,readonly" postgres:18 \
+            pg_restore --list /backup/ums.dump > "$work/archive-contents"
+          for table in students teachers courses enrollments class_sessions attendance_records attestation portal_credentials; do
+            if ! grep -q "TABLE DATA public $table " "$work/archive-contents"; then
+              echo "::error::Archive is missing university table $table"; exit 1
+            fi
+          done
+          mkdir -p encrypted-backup
+          # GPG provides encryption and integrity protection. Pass the key through stdin.
+          printf '%s' "$BACKUP_KEY" | gpg --batch --yes --pinentry-mode loopback --passphrase-fd 0 \
+            --cipher-algo AES256 --symmetric --output encrypted-backup/university.dump.gpg "$work/ums.dump"
+          printf '%s' "$BACKUP_KEY" | gpg --batch --yes --pinentry-mode loopback --passphrase-fd 0 \
+            --decrypt encrypted-backup/university.dump.gpg > "$work/verify.dump"
+          cmp "$work/ums.dump" "$work/verify.dump"
+      - name: Retain encrypted archive
+        uses: actions/upload-artifact@v4
+        with:
+          name: university-db-backup-${{ github.run_id }}
+          path: encrypted-backup/university.dump.gpg
+          retention-days: 14
+          if-no-files-found: error

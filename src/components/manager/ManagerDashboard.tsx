@@ -23,7 +23,7 @@ import {
 } from 'recharts';
 
 export const ManagerDashboard: React.FC = () => {
-  const { currentUser, setActivePath, courses, enrollments, users, t } = useApp();
+  const { currentUser, setActivePath, courses, enrollments, users, t, auditLogs, getStudentAttendanceRate } = useApp();
 
   const totalEnrollments = enrollments.length;
   const approvedEnrollments = enrollments.filter((e) => e.status === 'Approved').length;
@@ -34,10 +34,23 @@ export const ManagerDashboard: React.FC = () => {
     max: c.maxCapacity,
   }));
 
+  const studentCount = users.filter((user) => user.role === 'STUDENT').length;
+  const teacherCount = users.filter((user) => user.role === 'TEACHER').length;
+  const approved = enrollments.filter((enrollment) => enrollment.status === 'Approved');
+  const withAttendance = new Set<string>();
+  const atRisk = new Set<string>();
+  for (const enrollment of approved) {
+    const rate = getStudentAttendanceRate(enrollment.studentId, enrollment.courseCode);
+    if (rate.total) withAttendance.add(enrollment.studentId);
+    if (rate.isAtRisk) atRisk.add(enrollment.studentId);
+  }
+  const compliant = withAttendance.size - atRisk.size;
   const attendanceDistributionData = [
-    { name: 'Compliant (>=80%)', value: 34, color: '#0B3D91' },
-    { name: 'At Risk (<80%)', value: 2, color: '#EF4444' },
+    { name: 'Compliant (≥80%)', value: compliant, color: '#0B3D91' },
+    { name: 'At risk (<80%)', value: atRisk.size, color: '#EF4444' },
   ];
+  const finalGrades = approved.flatMap((entry) => entry.score === undefined ? [] : [entry.score]);
+  const average = finalGrades.length ? (finalGrades.reduce((sum, value) => sum + value, 0) / finalGrades.length).toFixed(1) : '—';
 
   return (
     <div className="space-y-6 max-w-6xl mx-auto pb-12">
@@ -52,7 +65,7 @@ export const ManagerDashboard: React.FC = () => {
               {currentUser?.fullName}
             </h2>
             <p className="text-xs text-slate-500 mt-1">
-              {currentUser?.department} • Monitoring 5 Active Courses & 160 Students
+              {studentCount} students · {teacherCount} teachers
             </p>
           </div>
 
@@ -77,7 +90,7 @@ export const ManagerDashboard: React.FC = () => {
           <div className="text-3xl sm:text-4xl font-extrabold text-[#0B3D91]">
             {courses.length}
           </div>
-          <p className="text-[11px] text-slate-500">Fall 2026 Academic Catalog</p>
+          <p className="text-[11px] text-slate-500">Academic catalog</p>
         </div>
 
         <div className="bg-white rounded-2xl border border-[#D6E2F5] p-5 shadow-sm space-y-1">
@@ -85,9 +98,9 @@ export const ManagerDashboard: React.FC = () => {
             Total Student Registrations
           </span>
           <div className="text-3xl sm:text-4xl font-extrabold text-[#0F1F3D]">
-            {approvedEnrollments}
+            {totalEnrollments}
           </div>
-          <p className="text-[11px] text-emerald-600 font-bold">100% Registrar Verified</p>
+          <p className="text-[11px] text-emerald-600 font-bold">{approvedEnrollments} approved · {enrollments.filter((e) => e.status === 'Pending').length} pending</p>
         </div>
 
         <div className="bg-white rounded-2xl border border-[#D6E2F5] p-5 shadow-sm space-y-1">
@@ -95,10 +108,23 @@ export const ManagerDashboard: React.FC = () => {
             Students Below 80% Threshold
           </span>
           <div className="text-3xl sm:text-4xl font-extrabold text-red-600">
-            2
+            {atRisk.size}
           </div>
-          <p className="text-[11px] text-red-600 font-medium">Early-warning dispatched</p>
+          <p className="text-[11px] text-red-600 font-medium">Across active courses</p>
         </div>
+      </div>
+
+      <div className="grid gap-4 sm:grid-cols-2">
+        <article className="rounded-2xl border border-[#D6E2F5] bg-white p-5">
+          <h3 className="font-bold">Academic performance</h3>
+          <p className="mt-1 text-sm">Average final score {average} · {finalGrades.length} final grades</p>
+          <button className="mt-2 text-sm text-[#0B3D91] underline" onClick={() => setActivePath('performance-reports')}>View performance report</button>
+        </article>
+        <article className="rounded-2xl border border-[#D6E2F5] bg-white p-5">
+          <h3 className="font-bold">System activity</h3>
+          <p className="mt-1 text-sm">{auditLogs.length} recent entries</p>
+          <button className="mt-2 text-sm text-[#0B3D91] underline" onClick={() => setActivePath('audit-log')}>View audit log</button>
+        </article>
       </div>
 
       {/* CHARTS */}
@@ -138,7 +164,7 @@ export const ManagerDashboard: React.FC = () => {
             <h3 className="text-xs font-bold uppercase tracking-wider text-[#0F1F3D]">
               Academic Clearance Rate (80% Rule)
             </h3>
-            <span className="text-[11px] font-bold text-emerald-600">94.4% Compliant</span>
+            <span className="text-[11px] font-bold text-emerald-600">{withAttendance.size ? Math.round(compliant / withAttendance.size * 100) + '% compliant' : 'No attendance data'}</span>
           </div>
           <div className="h-56 w-full flex items-center justify-center">
             <ResponsiveContainer width="100%" height="100%">

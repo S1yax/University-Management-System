@@ -14,7 +14,6 @@ import {
   KeyRound,
 } from 'lucide-react';
 import { Language, UserRole } from '../../types';
-import { MESSAGES } from '../../data/mockData';
 
 interface TopBarProps {
   onToggleMobileSidebar: () => void;
@@ -22,10 +21,9 @@ interface TopBarProps {
 }
 
 export const TopBar: React.FC<TopBarProps> = ({ onToggleMobileSidebar, pageTitle }) => {
-  const { currentUser, logout, language, setLanguage, setActivePath, t } = useApp();
+  const { currentUser, logout, language, setLanguage, setActivePath, t, notifications: notificationsList, mutate } = useApp();
   const [showUserDropdown, setShowUserDropdown] = useState(false);
   const [showNotifications, setShowNotifications] = useState(false);
-  const [notificationsList, setNotificationsList] = useState(MESSAGES);
 
   const userDropdownRef = useRef<HTMLDivElement>(null);
   const notifDropdownRef = useRef<HTMLDivElement>(null);
@@ -156,7 +154,7 @@ export const TopBar: React.FC<TopBarProps> = ({ onToggleMobileSidebar, pageTitle
                 <button
                   type="button"
                   onClick={() =>
-                    setNotificationsList((prev) => prev.map((item) => ({ ...item, read: true })))
+                    void Promise.all(notificationsList.filter((item) => !item.read).map((item) => mutate('/notifications/' + item.id, 'PATCH', {})))
                   }
                   className="text-[11px] font-semibold text-[#0B3D91] hover:underline"
                 >
@@ -180,7 +178,7 @@ export const TopBar: React.FC<TopBarProps> = ({ onToggleMobileSidebar, pageTitle
                       {notif.content}
                     </p>
                     <span className="inline-block mt-1.5 text-[10px] font-medium text-[#0B3D91]">
-                      {notif.sender} ({notif.senderRole})
+                      {notif.sender} ({notif.sender})
                     </span>
                   </div>
                 ))}

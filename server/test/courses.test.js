@@ -3,46 +3,23 @@
 // Everything the tests change is put back at the end, so they can run again.
 import { test, before, after } from 'node:test';
 import assert from 'node:assert/strict';
-import { app } from '../src/app.js';
-import { pool } from '../src/db.js';
+import { fixture } from './fixture.js';
 
 const MUBARAK = '24B031901'; // BIS201 (Mon), CS101 (Wed), DB202 (Tue 14-17) = 10 credits
 const SANIYA = '24B031926';  // BIS201, CS101, DB202, NET203, MATH101 = 16 credits, has attestation points
 
-let server;
-let base;
-let lastEnrollment;
-let savedPoints;
-
-before(async () => {
-  lastEnrollment = (await pool.query('SELECT COALESCE(MAX(enrollment_id), 0) AS id FROM enrollments')).rows[0].id;
-  savedPoints = (await pool.query('SELECT * FROM attestation')).rows;
-  server = app.listen(0);
-  base = `http://localhost:${server.address().port}/api`;
-});
-
-after(async () => {
-  await pool.query('DELETE FROM enrollments WHERE enrollment_id > $1', [lastEnrollment]);
-  await pool.query('DELETE FROM attestation');
-  for (const p of savedPoints) {
-    await pool.query(
-      `INSERT INTO attestation (student_id, course_code, semester, attestation_1, attestation_2, final_exam, updated_by, updated_at)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`,
-      [p.student_id, p.course_code, p.semester, p.attestation_1, p.attestation_2, p.final_exam, p.updated_by, p.updated_at]
-    );
-  }
-  server.close();
-  await pool.end();
-});
-
-const call = (method, path, body) =>
-  fetch(base + path, {
-    method,
-    headers: { 'Content-Type': 'application/json' },
-    body: body ? JSON.stringify(body) : undefined,
-  }).then(async (r) => ({ code: r.status, body: await r.json() }));
+let qa;
+let pool;
+before(async () => { qa = await fixture(); pool = qa.pool; });
+after(async () => { await qa?.close(); });
+const call = (method, path, body) => {
+  const username = method === 'PUT' ? (body.courseCode === 'FIN201' ? 't_sadykova' : 't_issabek')
+    : method === 'PATCH' || path === '/clashes' || path.startsWith('/enrollments?') ? 'm_askarova'
+    : path.includes(SANIYA) || body?.studentId === SANIYA || method === 'DELETE' ? 's_niyazkhan' : 'm_nurlybay';
+  return qa.request(method, path, body, username);
+};
 const register = (studentId, courseCode) => call('POST', '/enrollments', { studentId, courseCode });
-const points = (body) => call('PUT', '/attestation', { teacher: 'Ainur Issabek', ...body });
+const points = (body) => call('PUT', '/attestation', body);
 let mubarakNet;
 let saniyaFin;
 
@@ -85,11 +62,10 @@ test('C5 a course at the same time is rejected (IS202 Tue 16-19 vs DB202 Tue 14-
   assert.match(r.body.message, /DB202/);
 });
 
-test('C6 more than 21 credits is rejected', async () => {
-  const ok = await register(SANIYA, 'FIN201'); // 16 + 3 = 19
-  assert.equal(ok.code, 201);
-  saniyaFin = ok.body.enrollment.enrollment_id;
-  const r = await register(SANIYA, 'IS202'); // 19 + 4 = 23
+test('C6 more than 21 ECTS is rejected, preserving legacy pending registrations', async () => {
+  const legacy = await pool.query("INSERT INTO enrollments (student_id,course_code,semester,status) VALUES ($1,'FIN201','Fall 2026','Pending') RETURNING enrollment_id", [SANIYA]);
+  saniyaFin = legacy.rows[0].enrollment_id;
+  const r = await register(SANIYA, 'ENG102');
   assert.equal(r.code, 409);
   assert.equal(r.body.status, 'CREDIT_LIMIT');
 });
@@ -161,8 +137,8 @@ test('C16 with 30 points the final exam gives the total and the grade', async ()
 
 test('C17 no points for a course the student did not register for, or that is not approved', async () => {
   const none = await points({ studentId: MUBARAK, courseCode: 'MATH101', attestation1: 20 });
-  assert.equal(none.code, 404);
-  assert.equal(none.body.status, 'NOT_REGISTERED');
+  assert.equal(none.code, 403);
+  assert.equal(none.body.status, 'NOT_APPROVED');
   const pending = await points({ studentId: SANIYA, courseCode: 'FIN201', attestation1: 20 });
   assert.equal(pending.code, 403);
   assert.equal(pending.body.status, 'NOT_APPROVED');

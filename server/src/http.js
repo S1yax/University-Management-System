@@ -6,7 +6,7 @@ export const reply = (res, code, status, message, extra = {}) =>
   res.status(code).json({ status, message, ...extra });
 
 /** Wraps an async handler so a database error goes to the error handler in app.js */
-export const route = (fn) => (req, res, next) => fn(req, res).catch(next);
+export const route = (fn) => (req, res, next) => fn(req, res, next).catch(next);
 
 export const isNumber = (v) => typeof v === 'number' && Number.isFinite(v);
 
@@ -38,3 +38,5 @@ export function replyDbRule(res, err) {
   reply(res, a[0], a[1], message);
   return true;
 }
+
+export const campusDateSQL = "timezone('Asia/Almaty', statement_timestamp())";

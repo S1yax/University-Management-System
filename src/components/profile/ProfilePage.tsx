@@ -11,8 +11,7 @@ import {
 } from 'lucide-react';
 import { useApp } from '../../context/AppContext';
 import { StudentProfile } from './StudentProfile';
-import { getCredential, hasRememberedDevice } from '../../utils/credentials';
-import { usesSemesterPassword } from '../../utils/passwordExpiry';
+import { ContactSettings } from './ContactSettings';
 
 const ROLE_LABELS: Record<string, string> = {
   STUDENT: 'Student',
@@ -20,11 +19,6 @@ const ROLE_LABELS: Record<string, string> = {
   MANAGER: 'Manager (Registrar)',
   ADMIN: 'Administrator',
 };
-
-/** Fall = August–December, Spring = January–July (same rule as passwordExpiry.ts). */
-function nextSemester(from: Date): string {
-  return from.getMonth() >= 7 ? `Spring ${from.getFullYear() + 1}` : `Fall ${from.getFullYear()}`;
-}
 
 const Field: React.FC<{ icon: React.ReactNode; label: string; value?: string | number }> = ({
   icon,
@@ -46,9 +40,6 @@ export const ProfilePage: React.FC = () => {
   if (!currentUser) return null;
   // Students get the tabbed profile; the other roles keep this simple page
   if (currentUser.role === 'STUDENT') return <StudentProfile />;
-  const credential = getCredential(currentUser.username);
-  const changedOn = credential ? credential.updatedAt.substring(0, 10) : null;
-  const semesterRule = usesSemesterPassword(currentUser.role);
   const initials = currentUser.fullName
     .split(' ')
     .map((part) => part[0])
@@ -87,25 +78,14 @@ export const ProfilePage: React.FC = () => {
         </p>
       </div>
 
+      <ContactSettings />
+
       {/* Security */}
       <div className="bg-white rounded-2xl border border-[#D6E2F5] p-5 sm:p-6 shadow-sm space-y-3">
         <h3 className="text-sm font-extrabold text-[#0F1F3D] flex items-center gap-2">
           <ShieldCheck className="w-4 h-4 text-[#0B3D91]" />
           Account security
         </h3>
-        <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
-          <Field icon={<KeyRound className="w-4 h-4" />} label="Password last changed" value={changedOn ?? 'Not set yet'} />
-          <Field
-            icon={<Clock className="w-4 h-4" />}
-            label="Next password change"
-            value={semesterRule ? `Required in ${nextSemester(new Date())}` : 'No fixed date'}
-          />
-          <Field
-            icon={<ShieldCheck className="w-4 h-4" />}
-            label="This device"
-            value={hasRememberedDevice() ? 'Kept signed in (automatic sign-in)' : 'Not remembered'}
-          />
-        </div>
         <button
           type="button"
           onClick={() => setActivePath('change-password')}

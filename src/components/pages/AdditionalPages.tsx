@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useCallback, useEffect, useState } from 'react';
 import { useApp } from '../../context/AppContext';
 import {
   BookOpen,
@@ -26,7 +26,9 @@ import {
   MapPin,
   Check,
 } from 'lucide-react';
-import { NEWS_ITEMS, MESSAGES } from '../../data/mockData';
+import { NEWS_ITEMS } from '../../data/mockData';
+import { coursesApi, isApiConfigured } from '../../api/coursesApi';
+import type { CatalogCourse, ServerEnrollment } from '../../api/coursesApi';
 
 // MY COURSES PAGE
 export const MyCoursesPage: React.FC = () => {
@@ -34,7 +36,7 @@ export const MyCoursesPage: React.FC = () => {
   const myCourses = courses.filter((c) =>
     currentUser?.role === 'TEACHER'
       ? c.instructorId === currentUser.id
-      : enrollments.some((e) => e.studentId === currentUser?.id && e.courseCode === c.code)
+      : enrollments.some((e) => e.studentId === currentUser?.id && e.courseCode === c.code && e.status === 'Approved')
   );
 
   return (
@@ -75,14 +77,13 @@ export const MyCoursesPage: React.FC = () => {
 
 // SCHEDULE PAGE
 export const SchedulePage: React.FC = () => {
-  const days = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday'];
-  const timetable = [
-    { day: 'Monday', time: '16:00 – 19:00', course: 'BIS201 Basics of Information Systems', room: 'Hall 301', teacher: 'Ainur Issabek' },
-    { day: 'Tuesday', time: '14:00 – 17:00', course: 'DB202 Database Systems & SQL', room: 'Computer Lab 204', teacher: 'Miras Asubay' },
-    { day: 'Wednesday', time: '10:00 – 13:00', course: 'CS101 Introduction to Computer Science', room: 'Auditorium 442', teacher: 'Arman Myrzakanurov' },
-    { day: 'Thursday', time: '11:00 – 14:00', course: 'NET203 Computer Networks', room: 'Auditorium 442', teacher: 'Arman Myrzakanurov' },
-    { day: 'Friday', time: '09:00 – 12:00', course: 'MATH101 Discrete Mathematics', room: 'Hall 301', teacher: 'Ainur Issabek' },
-  ];
+  const { courses, enrollments, currentUser } = useApp();
+  const days = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'];
+  const timetable = courses.filter((course) => currentUser?.role !== 'STUDENT' ||
+    enrollments.some((e) => e.courseCode === course.code && e.status === 'Approved'))
+    .map((course) => ({ code: course.code, day: days[(course.dayOfWeek ?? 1) - 1],
+      time: course.startTime + ' – ' + course.endTime, course: course.code + ' ' + course.title,
+      room: course.room, teacher: course.instructorName })).sort((a, b) => a.time.localeCompare(b.time));
 
   return (
     <div className="space-y-6 max-w-6xl mx-auto pb-12">
@@ -93,14 +94,14 @@ export const SchedulePage: React.FC = () => {
 
       <div className="grid grid-cols-1 md:grid-cols-5 gap-3">
         {days.map((day) => {
-          const item = timetable.find((t) => t.day === day);
+          const items = timetable.filter((t) => t.day === day);
           return (
             <div key={day} className="bg-white rounded-xl border border-[#D6E2F5] p-4 shadow-sm space-y-3">
               <div className="font-extrabold text-xs text-[#0B3D91] uppercase tracking-wider pb-2 border-b border-[#D6E2F5]">
                 {day}
               </div>
-              {item ? (
-                <div className="p-3 bg-[#F5F8FD] rounded-lg border border-[#D6E2F5] space-y-1.5">
+              {items.length ? items.map((item) => (
+                <div key={item.code} className="p-3 bg-[#F5F8FD] rounded-lg border border-[#D6E2F5] space-y-1.5">
                   <span className="text-[10px] font-bold text-slate-500 flex items-center gap-1">
                     <Clock className="w-3 h-3 text-[#0B3D91]" /> {item.time}
                   </span>
@@ -114,7 +115,7 @@ export const SchedulePage: React.FC = () => {
                     {item.teacher}
                   </div>
                 </div>
-              ) : (
+              )) : (
                 <div className="text-xs text-slate-400 py-6 text-center italic">
                   No classes
                 </div>
@@ -130,17 +131,17 @@ export const SchedulePage: React.FC = () => {
 // GRADES & TRANSCRIPT PAGE
 export const GradesTranscriptPage: React.FC = () => {
   const { currentUser, enrollments } = useApp();
-  const myGrades = enrollments.filter((e) => e.studentId === currentUser?.id);
+  const myGrades = enrollments.filter((e) => e.studentId === currentUser?.id && e.grade !== undefined);
 
   return (
     <div className="space-y-6 max-w-6xl mx-auto pb-12">
       <div className="bg-white rounded-2xl border border-[#D6E2F5] p-5 sm:p-6 shadow-sm flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div>
           <h2 className="text-xl font-extrabold text-[#0F1F3D]">Academic Transcript & Grades</h2>
-          <p className="text-xs text-slate-500 mt-1">Official Electronic Transcript • Cumulative GPA: <strong>{currentUser?.gpa || '3.85'}</strong></p>
+          <p className="text-xs text-slate-500 mt-1">Official Electronic Transcript • Cumulative GPA: <strong>{currentUser?.gpa?.toFixed(2) ?? 'GPA not available'}</strong></p>
         </div>
         <div className="px-4 py-2 bg-[#E8F0FE] text-[#0B3D91] font-bold text-xs rounded-xl border border-[#D6E2F5]">
-          Status: Good Standing (Honor Roll)
+          Final grades
         </div>
       </div>
 
@@ -156,15 +157,16 @@ export const GradesTranscriptPage: React.FC = () => {
             </tr>
           </thead>
           <tbody className="divide-y divide-[#D6E2F5]/70">
+            {!myGrades.length && <tr><td colSpan={5} className="p-4">No final grades available.</td></tr>}
             {myGrades.map((g, idx) => (
               <tr key={g.id} className={idx % 2 === 0 ? 'bg-white' : 'bg-[#F5F8FD]'}>
                 <td className="py-3 px-4 font-bold text-[#0F1F3D]">{g.courseCode}</td>
                 <td className="py-3 px-4 text-slate-600">{g.semester}</td>
                 <td className="py-3 px-4 font-semibold">{g.credits} ECTS</td>
-                <td className="py-3 px-4 font-bold text-[#0B3D91]">{g.score || 90}/100</td>
+                <td className="py-3 px-4 font-bold text-[#0B3D91]">{g.score == null ? '—' : g.score + '/100'}</td>
                 <td className="py-3 px-4">
                   <span className="px-2 py-0.5 rounded font-extrabold bg-blue-50 text-[#0B3D91] border border-blue-200">
-                    {g.grade || 'A'}
+                    {g.grade ?? '—'}
                   </span>
                 </td>
               </tr>
@@ -176,14 +178,96 @@ export const GradesTranscriptPage: React.FC = () => {
   );
 };
 
+
 // COURSE REGISTRATION PAGE
 export const CourseRegistrationPage: React.FC = () => {
-  const { courses, enrollments, currentUser } = useApp();
-  const [registered, setRegistered] = useState<string[]>(['BIS201', 'CS101', 'DB202', 'NET203', 'MATH101']);
+  const { currentUser } = useApp();
+  const studentId = currentUser?.studentId;
 
-  const handleRegister = (code: string) => {
-    if (!registered.includes(code)) {
-      setRegistered([...registered, code]);
+  const [courses, setCourses] = useState<CatalogCourse[]>([]);
+  const [enrollments, setEnrollments] = useState<ServerEnrollment[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [registeringCode, setRegisteringCode] = useState<string | null>(null);
+  const [error, setError] = useState('');
+  const [notice, setNotice] = useState('');
+
+  const loadData = useCallback(async () => {
+    if (!isApiConfigured) {
+      throw new Error('Backend API is not configured. Check the .env.local file.');
+    }
+    if (!studentId) {
+      throw new Error('Student ID is missing. Please sign in with a student account.');
+    }
+
+    const [catalogResult, enrollmentResult] = await Promise.all([
+      coursesApi.catalog(),
+      coursesApi.enrollments({ studentId }),
+    ]);
+
+    if (catalogResult.code < 200 || catalogResult.code >= 300) {
+      throw new Error('Could not load the course catalog.');
+    }
+    if (enrollmentResult.code < 200 || enrollmentResult.code >= 300) {
+      throw new Error('Could not load your registrations.');
+    }
+
+    setCourses(catalogResult.body.courses);
+    setEnrollments(enrollmentResult.body.enrollments);
+  }, [studentId]);
+
+  useEffect(() => {
+    setLoading(true);
+    loadData()
+      .catch((err: unknown) => {
+        setError(err instanceof Error ? err.message : 'Failed to load course data.');
+      })
+      .finally(() => setLoading(false));
+    const interval = window.setInterval(() => { if (!document.hidden) void loadData().catch(() => undefined); }, 5000);
+    return () => window.clearInterval(interval);
+  }, [loadData]);
+
+  const activeEnrollments = enrollments.filter(
+    (e) => e.status === 'Approved' || e.status === 'Pending'
+  );
+
+  const selectedCredits = activeEnrollments.reduce(
+    (total, e) => total + (e.ects_credits ?? e.credits),
+    0
+  );
+
+  const handleRegister = async (code: string) => {
+    if (!studentId || registeringCode) return;
+
+    setRegisteringCode(code);
+    setError('');
+    setNotice('');
+
+    try {
+      const result = await coursesApi.register(studentId, code);
+
+      if (result.code < 200 || result.code >= 300) {
+        throw new Error(result.body.message || 'Registration was rejected.');
+      }
+
+      await loadData();
+      setNotice(result.body.message || `Successfully registered for ${code}.`);
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : 'Registration failed.');
+    } finally {
+      setRegisteringCode(null);
+    }
+  };
+
+  const cancelPending = async (id: number) => {
+    setError('');
+    setNotice('');
+    try {
+      const result = await coursesApi.cancel(id);
+      if (result.code >= 400) throw new Error(result.body.message);
+      await loadData();
+      setNotice(result.body.message);
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : 'Could not cancel the registration.');
     }
   };
 
@@ -192,114 +276,116 @@ export const CourseRegistrationPage: React.FC = () => {
       <div className="bg-white rounded-2xl border border-[#D6E2F5] p-5 sm:p-6 shadow-sm flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div>
           <h2 className="text-xl font-extrabold text-[#0F1F3D]">Course Registration Portal</h2>
-          <p className="text-xs text-slate-500 mt-1">Maximum 21 ECTS per semester • Priority window active</p>
+          <p className="text-xs text-slate-500 mt-1">
+            Maximum 21 ECTS per semester
+          </p>
         </div>
         <div className="text-xs font-bold text-[#0B3D91] bg-[#E8F0FE] px-3 py-1.5 rounded-xl border border-[#D6E2F5]">
-          Credits Selected: {registered.length * 3} / 21
+          ECTS selected: {selectedCredits} / 21
         </div>
       </div>
 
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-        {courses.map((c) => {
-          const isReg = registered.includes(c.code);
-          return (
-            <div key={c.id} className="bg-white rounded-xl border border-[#D6E2F5] p-5 shadow-sm space-y-3">
-              <div className="flex items-start justify-between">
-                <div>
-                  <span className="text-xs font-bold px-2 py-0.5 rounded bg-[#E8F0FE] text-[#0B3D91]">
-                    {c.code} • {c.credits} Credits
+      {error && (
+        <div className="bg-red-50 border border-red-200 text-red-700 rounded-xl p-4 text-sm">
+          {error}
+        </div>
+      )}
+      {notice && (
+        <div className="bg-emerald-50 border border-emerald-200 text-emerald-800 rounded-xl p-4 text-sm">
+          {notice}
+        </div>
+      )}
+
+      {loading ? (
+        <div className="bg-white rounded-xl border border-[#D6E2F5] p-8 text-center text-sm text-slate-500">
+          Loading courses from the server...
+        </div>
+      ) : (
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+          {courses.map((c) => {
+            const enrollment = enrollments.find(
+              (e) => e.course_code === c.course_code
+            );
+            const isReg = enrollment !== undefined;
+            const courseCredits = c.ects_credits ?? c.credits;
+            const noPlaces = c.free_places <= 0;
+
+            return (
+              <div key={c.course_code} className="bg-white rounded-xl border border-[#D6E2F5] p-5 shadow-sm space-y-3">
+                <div className="flex items-start justify-between gap-3">
+                  <div>
+                    <span className="text-xs font-bold px-2 py-0.5 rounded bg-[#E8F0FE] text-[#0B3D91]">
+                      {c.course_code} • {courseCredits} ECTS
+                    </span>
+                    <h3 className="font-extrabold text-sm text-[#0F1F3D] mt-1.5">{c.title}</h3>
+                  </div>
+                  <span className="text-xs text-slate-500 font-semibold whitespace-nowrap">
+                    {c.taken_places}/{c.max_places} Seats
                   </span>
-                  <h3 className="font-extrabold text-sm text-[#0F1F3D] mt-1.5">{c.title}</h3>
                 </div>
-                <span className="text-xs text-slate-500 font-semibold">{c.enrolledCount}/{c.maxCapacity} Seats</span>
+
+                <div className="text-xs text-slate-600 space-y-1">
+                  <p>Faculty: {c.faculty}</p>
+                  <p>Instructor: {c.teacher}</p>
+                  <p>Schedule: {c.day}, {c.start_time}–{c.end_time}</p>
+                  <p>Room: {c.room}</p>
+                  <p>Available places: {c.free_places}</p>
+                </div>
+
+                <div className="pt-3 border-t border-[#D6E2F5] flex items-center justify-between gap-3">
+                  <span className="text-xs text-slate-500">
+                    {isReg ? `Status: ${enrollment?.status}` :
+                      noPlaces ? 'No available places' : 'Registration available'}
+                  </span>
+                  <button
+                    type="button"
+                    onClick={() => handleRegister(c.course_code)}
+                    disabled={Boolean(isReg || noPlaces || registeringCode || !studentId)}
+                    className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all ${
+                      isReg
+                        ? 'bg-emerald-50 text-emerald-800 border border-emerald-200 cursor-default'
+                        : noPlaces || registeringCode
+                          ? 'bg-slate-100 text-slate-400 cursor-not-allowed'
+                          : 'bg-[#0B3D91] hover:bg-[#0A3278] text-white shadow-xs'
+                    }`}
+                  >
+                    {registeringCode === c.course_code ? 'Registering...' :
+                      isReg ? enrollment?.status : noPlaces ? 'Full' : 'Register Now'}
+                  </button>
+                  {enrollment?.status === 'Pending' && <button type="button" className="text-xs text-[#0B3D91] underline"
+                    onClick={() => void cancelPending(enrollment.enrollment_id)}>Cancel request</button>}
+                </div>
               </div>
-              <p className="text-xs text-slate-600 line-clamp-2">{c.description}</p>
-              <div className="pt-3 border-t border-[#D6E2F5] flex items-center justify-between">
-                <span className="text-xs text-slate-500">Instructor: <strong>{c.instructorName}</strong></span>
-                <button
-                  type="button"
-                  onClick={() => handleRegister(c.code)}
-                  disabled={isReg}
-                  className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all ${
-                    isReg
-                      ? 'bg-emerald-50 text-emerald-800 border border-emerald-200 cursor-default'
-                      : 'bg-[#0B3D91] hover:bg-[#0A3278] text-white shadow-xs'
-                  }`}
-                >
-                  {isReg ? 'Registered' : 'Register Now'}
-                </button>
-              </div>
+            );
+          })}
+          {courses.length === 0 && (
+            <div className="col-span-full bg-white rounded-xl border border-[#D6E2F5] p-8 text-center text-sm text-slate-500">
+              No courses found in the database.
             </div>
-          );
-        })}
-      </div>
+          )}
+        </div>
+      )}
     </div>
   );
 };
 
 // MESSAGES PAGE
 export const MessagesPage: React.FC = () => {
-  const [messagesList, setMessagesList] = useState(MESSAGES);
-  const [selectedMsg, setSelectedMsg] = useState(messagesList[0]);
-
-  return (
-    <div className="space-y-6 max-w-6xl mx-auto pb-12">
-      <div className="bg-white rounded-2xl border border-[#D6E2F5] p-5 sm:p-6 shadow-sm">
-        <h2 className="text-xl font-extrabold text-[#0F1F3D]">Academic Communication Center</h2>
-        <p className="text-xs text-slate-500 mt-1">Official notices, faculty communication & administrative memos</p>
-      </div>
-
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-4 bg-white rounded-2xl border border-[#D6E2F5] overflow-hidden shadow-sm min-h-[450px]">
-        {/* Inbox list */}
-        <div className="border-r border-[#D6E2F5] divide-y divide-[#D6E2F5]/70 overflow-y-auto">
-          {messagesList.map((m) => (
-            <div
-              key={m.id}
-              onClick={() => setSelectedMsg(m)}
-              className={`p-4 text-xs cursor-pointer transition-colors ${
-                selectedMsg.id === m.id ? 'bg-[#E8F0FE]' : 'hover:bg-[#F5F8FD]'
-              }`}
-            >
-              <div className="flex items-center justify-between">
-                <span className="font-bold text-[#0B3D91]">{m.sender}</span>
-                <span className="text-[10px] text-slate-400">{m.date.split(' ')[0]}</span>
-              </div>
-              <p className="font-semibold text-[#0F1F3D] mt-1 truncate">{m.subject}</p>
-              <p className="text-slate-500 text-[11px] truncate mt-0.5">{m.content}</p>
-            </div>
-          ))}
-        </div>
-
-        {/* Message View */}
-        <div className="md:col-span-2 p-6 flex flex-col justify-between space-y-4">
-          <div className="space-y-3">
-            <div className="pb-3 border-b border-[#D6E2F5]">
-              <h3 className="font-extrabold text-base text-[#0F1F3D]">{selectedMsg.subject}</h3>
-              <p className="text-xs text-slate-500 mt-1">
-                From: <strong>{selectedMsg.sender}</strong> ({selectedMsg.senderRole}) • {selectedMsg.date}
-              </p>
-            </div>
-            <p className="text-xs text-slate-700 leading-relaxed whitespace-pre-line">{selectedMsg.content}</p>
-          </div>
-
-          <div className="pt-4 border-t border-[#D6E2F5] flex justify-end gap-2">
-            <input
-              type="text"
-              placeholder="Type a quick reply to faculty..."
-              className="flex-1 h-9 px-3 text-xs bg-[#F5F8FD] border border-[#D6E2F5] rounded-xl focus:outline-none focus:ring-2 focus:ring-[#0B3D91]"
-            />
-            <button className="px-4 py-2 bg-[#0B3D91] text-white text-xs font-bold rounded-xl flex items-center gap-1.5 shadow-xs">
-              <Send className="w-3.5 h-3.5" />
-              <span>Send</span>
-            </button>
-          </div>
-        </div>
-      </div>
-    </div>
-  );
+  const { notifications, mutate } = useApp();
+  return <section className="mx-auto max-w-6xl space-y-3">
+    <h2 className="rounded-xl border border-[#D6E2F5] bg-white p-5 text-xl font-extrabold">Messages</h2>
+    {!notifications.length && <p className="text-sm text-slate-500">No messages.</p>}
+    {notifications.map((message) => <article key={message.id}
+      className="rounded-xl border border-[#D6E2F5] bg-white p-5">
+      <h3 className="font-semibold">{message.subject}</h3>
+      <p className="text-xs text-slate-500">{message.sender} · {new Date(message.date).toLocaleString()}</p>
+      <p className="my-2 text-sm">{message.content}</p>
+      {!message.read && <button className="text-sm text-[#0B3D91] underline"
+        onClick={() => void mutate('/notifications/' + message.id, 'PATCH', {})}>Mark as read</button>}
+    </article>)}
+  </section>;
 };
 
-// TEACHER RATINGS PAGE
 export const TeacherRatingsPage: React.FC = () => {
   const [rated, setRated] = useState<Record<string, number>>({ 'Ainur Issabek': 5, 'Arman Myrzakanurov': 5 });
   const teachers = ['Ainur Issabek (BIS201)', 'Arman Myrzakanurov (CS101)', 'Miras Asubay (DB202)'];
@@ -567,7 +653,15 @@ export const CoursesCatalogPage: React.FC = () => {
 
 // ENROLLMENTS PAGE (Manager)
 export const EnrollmentsPage: React.FC = () => {
-  const { enrollments } = useApp();
+  const { enrollments, mutate } = useApp();
+  const [working, setWorking] = useState<string | null>(null);
+  const [notice, setNotice] = useState('');
+  const decide = async (id: string, status: string) => {
+    setWorking(id);
+    const result = await mutate('/enrollments/' + id, 'PATCH', { status });
+    setNotice(result.message);
+    setWorking(null);
+  };
 
   return (
     <div className="space-y-6 max-w-6xl mx-auto pb-12">
@@ -576,7 +670,8 @@ export const EnrollmentsPage: React.FC = () => {
         <p className="text-xs text-slate-500 mt-1">Academic Registrar validation against prerequisites and credit caps</p>
       </div>
 
-      <div className="bg-white rounded-2xl border border-[#D6E2F5] overflow-hidden shadow-sm">
+      {notice && <p role="status" className="text-sm">{notice}</p>}
+      <div className="bg-white rounded-2xl border border-[#D6E2F5] overflow-x-auto shadow-sm">
         <table className="w-full text-xs text-left">
           <thead className="bg-[#E8F0FE] text-[#0B3D91] font-bold uppercase tracking-wider border-b border-[#D6E2F5]">
             <tr>
@@ -598,6 +693,10 @@ export const EnrollmentsPage: React.FC = () => {
                   <span className="px-2 py-0.5 rounded-full font-bold text-[11px] bg-emerald-50 text-emerald-800 border border-emerald-200">
                     {e.status}
                   </span>
+                  {e.status === 'Pending' && <div className="mt-2 flex gap-2">
+                    <button className="text-[#0B3D91] underline" disabled={working === e.id} onClick={() => void decide(e.id, 'Approved')}>Approve</button>
+                    <button className="text-red-700 underline" disabled={working === e.id} onClick={() => void decide(e.id, 'Rejected')}>Reject</button>
+                  </div>}
                 </td>
               </tr>
             ))}
@@ -610,32 +709,28 @@ export const EnrollmentsPage: React.FC = () => {
 
 // PERFORMANCE REPORTS PAGE (Manager)
 export const PerformanceReportsPage: React.FC = () => {
-  return (
-    <div className="space-y-6 max-w-6xl mx-auto pb-12">
-      <div className="bg-white rounded-2xl border border-[#D6E2F5] p-5 sm:p-6 shadow-sm">
-        <h2 className="text-xl font-extrabold text-[#0F1F3D]">Academic Performance Analytics</h2>
-        <p className="text-xs text-slate-500 mt-1">Departmental GPA distributions, passing ratios, and retention rates</p>
-      </div>
-
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-        <div className="bg-white rounded-xl border border-[#D6E2F5] p-5 shadow-sm space-y-1">
-          <span className="text-xs font-bold text-slate-500">Average School GPA</span>
-          <div className="text-3xl font-extrabold text-[#0B3D91]">3.42</div>
-          <p className="text-[11px] text-emerald-600 font-bold">+0.12 vs Fall 2025</p>
-        </div>
-        <div className="bg-white rounded-xl border border-[#D6E2F5] p-5 shadow-sm space-y-1">
-          <span className="text-xs font-bold text-slate-500">Exam Clearance Ratio</span>
-          <div className="text-3xl font-extrabold text-emerald-700">94.4%</div>
-          <p className="text-[11px] text-slate-500">Met 80% attendance requirement</p>
-        </div>
-        <div className="bg-white rounded-xl border border-[#D6E2F5] p-5 shadow-sm space-y-1">
-          <span className="text-xs font-bold text-slate-500">Early Warnings Issued</span>
-          <div className="text-3xl font-extrabold text-red-600">2</div>
-          <p className="text-[11px] text-slate-500">Immediate advisor intervention</p>
-        </div>
-      </div>
+  const { courses, enrollments, getStudentAttendanceRate } = useApp();
+  const report = courses.map((course) => {
+    const approved = enrollments.filter((e) => e.courseCode === course.code && e.status === 'Approved');
+    const grades = approved.flatMap((entry) => entry.score === undefined ? [] : [entry.score]);
+    const atRisk = approved.filter((entry) => getStudentAttendanceRate(entry.studentId, entry.courseCode).isAtRisk).length;
+    return { course, approved: approved.length, atRisk, finalized: grades.length,
+      average: grades.length ? (grades.reduce((sum, score) => sum + score, 0) / grades.length).toFixed(1) : '—' };
+  });
+  return <section className="mx-auto max-w-6xl space-y-4">
+    <h2 className="rounded-xl border border-[#D6E2F5] bg-white p-5 text-xl font-extrabold">Academic Performance</h2>
+    <div className="overflow-x-auto rounded-xl border border-[#D6E2F5] bg-white">
+      <table className="w-full text-left text-sm">
+        <thead className="bg-[#E8F0FE]"><tr>{['Course','Approved','Final grades','Average score','Attendance at risk'].map((h) =>
+          <th className="p-3" key={h}>{h}</th>)}</tr></thead>
+        <tbody>{report.map((r) => <tr key={r.course.id} className="border-t">
+          <td className="p-3 font-semibold">{r.course.code}</td><td className="p-3">{r.approved}</td>
+          <td className="p-3">{r.finalized}</td><td className="p-3">{r.average}</td><td className="p-3">{r.atRisk}</td>
+        </tr>)}</tbody>
+      </table>
+      {!report.length && <p className="p-4">No courses available.</p>}
     </div>
-  );
+  </section>;
 };
 
 // MENTORS PAGE (Manager)

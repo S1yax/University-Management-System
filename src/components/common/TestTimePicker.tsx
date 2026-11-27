@@ -16,7 +16,8 @@ const OPTIONS: { mode: TimeSimulationMode; label: string }[] = [
  * The choice is kept in this browser. Choose it on every device you test with.
  */
 export const TestTimePicker: React.FC = () => {
-  const { timeSimulationMode, setTimeSimulationMode } = useApp();
+  const { timeSimulationMode, setTimeSimulationMode, demoTime } = useApp();
+  if (!demoTime) return null;
   const isTest = timeSimulationMode !== 'REAL_TIME';
   return (
     <label

@@ -7,6 +7,19 @@
  *               (localhost on the laptop, the laptop's IP address on a phone in the same Wi-Fi)
  *   a URL    -> that address, e.g. http://localhost:4000/api
  */
+const tokenKey = 'kbtu_portal_session';
+let token: string | null = null;
+try { token = sessionStorage.getItem(tokenKey) ?? localStorage.getItem(tokenKey); } catch { /* Storage is optional. */ }
+export const sessionToken = () => token;
+export function setSessionToken(value: string | null, remember = false) {
+  token = value;
+  try {
+    sessionStorage.removeItem(tokenKey);
+    localStorage.removeItem(tokenKey);
+    if (value) (remember ? localStorage : sessionStorage).setItem(tokenKey, value);
+  } catch { /* An in-memory session still works. */ }
+}
+
 const RAW_URL = (import.meta.env.VITE_API_URL as string | undefined)?.trim();
 
 export const API_URL: string | null = !RAW_URL
@@ -49,9 +62,12 @@ export interface ApiAnswer {
 /** Calls the server. Shared by all API files in src/api/. */
 export async function call<T>(path: string, init?: RequestInit): Promise<{ code: number; body: T }> {
   if (!API_URL) throw new Error('API is not configured');
+  const headers = new Headers(init?.headers);
+  headers.set('Content-Type', 'application/json');
+  if (token) headers.set('Authorization', 'Bearer ' + token);
   const res = await fetch(API_URL + path, {
     ...init,
-    headers: { 'Content-Type': 'application/json', ...(init?.headers || {}) },
+    headers,
     signal: init?.signal ?? AbortSignal.timeout(5000),
   });
   return { code: res.status, body: (await res.json()) as T };

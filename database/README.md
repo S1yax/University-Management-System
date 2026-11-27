@@ -6,9 +6,13 @@ The real database for our KBTU UMS website. It follows the ERD on the
 "Database & ERD" page. The SQL on that page created only 3 tables, so
 this version adds `students`, `teachers`, `courses` and `enrollments`.
 
-## Version 4 (26.11): passwords for the login on the server
+## Existing Supabase installs
 
-Mubarak made the tables, Alua makes `/api/login`, change-password and the guard on the server.
+Apply the files in `migrations/` in numeric order or run `npm run migrate` from `server/`. Use the reset and seed SQL only on a new disposable database. Migration 06 adds identity, account, session, system activity and event data and restricts direct web-role grants. Migration 07 serializes enrollment by student and course and enforces the 21 ECTS registration limit.
+
+## Version 4 (26.11): team database credential prototype
+
+This section records the team database prototype. The merged Express portal uses the `portal_*` tables and the `/api/auth/*` API. The prototype tables and routines are retained for the database exercises. Migration 08 restricts their direct web-role access where they exist.
 The password itself is **never stored**, only its hash.
 
 ### `user_credentials`: one account per user (17 accounts in `02_seed.sql`)

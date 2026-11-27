@@ -167,7 +167,31 @@ export const Sidebar: React.FC<SidebarProps> = ({ isMobileOpen, onCloseMobile })
     items: projectItems,
   };
 
-  const allSections = [...uninetSections, projectSection];
+  const roleItems: NavItem[] = [
+    { id: 'dashboard', label: t('dashboard'), icon: BookOpen },
+    ...(currentUser.role === 'TEACHER' ? [
+      { id: 'gradebook', label: t('gradebook'), icon: BarChart3 },
+      { id: 'live-attendance', label: t('liveAttendance'), icon: Radio },
+      { id: 'students', label: t('students'), icon: Users2 },
+      { id: 'my-courses', label: t('myCourses'), icon: FileSpreadsheet },
+    ] : currentUser.role === 'MANAGER' ? [
+      { id: 'enrollments', label: t('enrollments'), icon: ClipboardCheck },
+      { id: 'performance-reports', label: t('performanceReports'), icon: BarChart3 },
+      { id: 'at-risk-attendance', label: t('atRiskAttendance'), icon: AlertTriangle },
+      { id: 'audit-log', label: t('auditLog'), icon: ClipboardList },
+    ] : currentUser.role === 'ADMIN' ? [
+      { id: 'users', label: t('users'), icon: Users2 },
+      { id: 'courses', label: t('courses'), icon: BookOpen },
+      { id: 'applications', label: t('enrollments'), icon: ClipboardCheck },
+      { id: 'system-settings', label: t('systemSettings'), icon: Building2 },
+      { id: 'audit-log', label: t('auditLog'), icon: ClipboardList },
+    ] : [
+      { id: 'my-courses', label: t('myCourses'), icon: FileSpreadsheet },
+      { id: 'attendance-checkin', label: t('attendanceCheckIn'), icon: Radio },
+      { id: 'messages', label: t('messages'), icon: Mail },
+    ]),
+  ];
+  const allSections = [{ id: 'role-tools', title: 'PORTAL', items: roleItems }, ...uninetSections, projectSection];
 
   const sidebarContent = (
     <div className="h-full flex flex-col bg-[#12162A] text-slate-200 select-none border-r border-[#1E2540]">
