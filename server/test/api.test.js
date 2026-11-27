@@ -3,8 +3,7 @@
 // Every check-in made here is deleted at the end, so the tests can run again.
 import { test, before, after } from 'node:test';
 import assert from 'node:assert/strict';
-import { app } from '../src/app.js';
-import { pool } from '../src/db.js';
+import { fixture } from './fixture.js';
 
 const HALL_301 = { latitude: 43.255330, longitude: 76.943100 }; // ~1.5 m from the center
 const FAR_AWAY = { latitude: 43.264000, longitude: 76.953500 }; // ~1.3 km away
@@ -17,28 +16,16 @@ const BAGDAT = '24B031666';
 const AIGERIM = '24B031405'; // BIS201, no check-ins in ses-8
 const DIAS = '24B031122';    // BIS201, only hour 1 in ses-8
 
-let server;
-let base;
-let lastIdBefore;
-
-before(async () => {
-  const { rows } = await pool.query('SELECT COALESCE(MAX(attendance_id), 0) AS id FROM attendance_records');
-  lastIdBefore = rows[0].id;
-  server = app.listen(0);
-  base = `http://localhost:${server.address().port}/api`;
-});
-
-after(async () => {
-  await pool.query('DELETE FROM attendance_records WHERE attendance_id > $1', [lastIdBefore]);
-  await pool.query("UPDATE class_sessions SET status = 'OPEN' WHERE session_id = 'ses-8'");
-  server.close();
-  await pool.end();
-});
-
-const post = (path, body) =>
-  fetch(base + path, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) })
-    .then(async (r) => ({ code: r.status, body: await r.json() }));
-const get = (path) => fetch(base + path).then(async (r) => ({ code: r.status, body: await r.json() }));
+let qa;
+const usernames = {
+  [MUBARAK]: 'm_nurlybay', [AMIR]: 'a_zholdassali', [DANIYAR]: 'd_serik',
+  [SANIYA]: 's_niyazkhan', [BAGDAT]: 'a_bagdat', [AIGERIM]: 'a_kanat', [DIAS]: 'd_tleubay',
+};
+before(async () => { qa = await fixture(); });
+after(async () => { await qa?.close(); });
+const post = (path, body) => qa.request('POST', path, body, path === '/override' ? 't_issabek' : usernames[body.studentId]);
+const get = (path) => qa.request('GET', path, undefined, path === '/health' ? undefined :
+  path.startsWith('/attendance') ? 'm_nurlybay' : 't_issabek');
 const checkin = (studentId, time, where = HALL_301, sessionId = 'ses-8') =>
   post('/checkin', { sessionId, studentId, ...where, time });
 
@@ -188,13 +175,27 @@ test('A16 records list has the check-ins made above', async () => {
 });
 
 test('A17 teacher closes ses-8, then a check-in is rejected', async () => {
-  const c = await fetch(`${base}/sessions/ses-8`, {
-    method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ status: 'CLOSED' }),
-  });
-  assert.equal(c.status, 200);
+  const c = await qa.request('PATCH', '/sessions/ses-8', { status: 'CLOSED' }, 't_issabek');
+  assert.equal(c.code, 200);
   const s = await get('/sessions');
   assert.equal(s.body.sessions.find((x) => x.session_id === 'ses-8').status, 'CLOSED');
   const r = await checkin('24B031666', '2026-11-02 18:30');
   assert.equal(r.code, 403);
   assert.equal(r.body.status, 'REJECTED_CLOSED');
+});
+
+
+test('A23 reopening a window shares a manual review and its resolution with authorized roles', async () => {
+  const open = await qa.request('PATCH', '/sessions/ses-8', { status: 'OPEN' }, 't_issabek');
+  assert.equal(open.code, 200);
+  const requested = await qa.request('POST', '/manual-review', {
+    sessionId: 'ses-8', reason: 'QA request', time: '2026-11-02 18:25',
+  }, 'a_bagdat');
+  assert.equal(requested.code, 200);
+  const pending = await qa.request('GET', '/workspace', undefined, 't_issabek');
+  assert.ok(pending.body.attendanceRecords.some((r) => r.studentId === BAGDAT && r.hourSlot === 3 && r.verificationStatus === 'MANUAL_REVIEW'));
+  const resolved = await post('/override', { sessionId: 'ses-8', studentId: BAGDAT, hourSlot: 3, status: 'PRESENT', reason: 'Verified by the test teacher' });
+  assert.equal(resolved.code, 200);
+  const manager = await qa.request('GET', '/workspace', undefined, 'm_askarova');
+  assert.ok(manager.body.attendanceRecords.some((r) => r.studentId === BAGDAT && r.hourSlot === 3 && r.verificationStatus === 'PRESENT'));
 });

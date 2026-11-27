@@ -6,7 +6,9 @@
   "main": "src/index.js",
   "scripts": {
     "start": "node src/index.js",
-    "test": "node --test test/accuracy.test.js test/api.test.js test/courses.test.js"
+    "test": "node --test --test-concurrency=1 test/accuracy.test.js test/api.test.js test/courses.test.js test/portal.test.js",
+    "migrate": "node src/migrate.js",
+    "provision": "node src/provision.js"
   },
   "engines": {
     "node": ">=18"

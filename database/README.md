@@ -6,6 +6,10 @@ The real database for our KBTU UMS website. It follows the ERD on the
 "Database & ERD" page. The SQL on that page created only 3 tables, so
 this version adds `students`, `teachers`, `courses` and `enrollments`.
 
+## Existing Supabase installs
+
+Apply the files in `migrations/` in numeric order or run `npm run migrate` from `server/`. Use the reset and seed SQL only on a new disposable database. Migration 06 adds identity, account, session, system activity and event data and restricts direct web-role grants. Migration 07 serializes enrollment by student and course and enforces the 21 ECTS registration limit.
+
 ## Version 3 (23.11): all subjects, registration, attestation
 
 - **8 subjects**: the 5 from the website's `COURSES` + `DB202`, `FIN201`, `ENG102` from the Discipline Schedule page.

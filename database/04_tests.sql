@@ -235,6 +235,7 @@ END $$;
 DO $$
 BEGIN
     UPDATE courses SET max_places = 1 WHERE course_code = 'ENG102';
+    DELETE FROM enrollments WHERE student_id = '24B031901' AND course_code = 'NET203' AND status = 'Pending';
     PERFORM register_for_course('24B031901', 'ENG102', 'Fall 2026');   -- takes the only place
     PERFORM register_for_course('24B031787', 'ENG102', 'Fall 2026');
     RAISE NOTICE 'TEST 19 FAIL: second student saved in a full course';
