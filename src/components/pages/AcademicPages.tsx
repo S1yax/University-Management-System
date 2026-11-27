@@ -143,7 +143,6 @@ export function EventsPage() {
     {loading ? <p role="status">Loading events…</p> : !events.length && <p className={card}>No events are listed.</p>}
     {events.map((event) => <article key={event.id} className={card}>
       <h3 className="font-semibold">{event.title}</h3>
-      {event.demo_key && <p className="text-xs font-semibold text-amber-800">Demo campus news</p>}
       <p className="text-sm text-slate-600">{new Date(event.starts_at).toLocaleString()} {event.volunteer && '· Volunteering'}</p>
       <p className="my-2 text-sm">{event.description}</p>
       {currentUser?.role === 'STUDENT' && !event.demo_key && <button className={button}
