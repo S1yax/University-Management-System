@@ -20,6 +20,8 @@ import { attestation } from './routes/attestation.js';
 import { authenticate, auth, roles, ownStudent, assignedSession, audit } from './auth.js';
 import { admin } from './routes/admin.js';
 import { portal } from './routes/portal.js';
+import { surveys } from './routes/surveys.js';
+import { timetable } from './routes/timetable.js';
 import { campusDateSQL } from './http.js';
 
 // Demo mode: the website can send a "time" so we can test lessons in the past
@@ -56,6 +58,8 @@ app.use('/api', authenticate, (req, res, next) => {
   next();
 });
 app.use(portal);
+app.use(surveys);
+app.use(timetable);
 app.use(admin);
 
 // ---------------------------------------------------------------------

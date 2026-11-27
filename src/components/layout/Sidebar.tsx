@@ -9,7 +9,7 @@ import {
   FolderArchive,
   Calendar,
   CalendarDays,
-  Search,
+  CalendarClock,
   Wallet,
   Receipt,
   Edit3,
@@ -96,7 +96,7 @@ export const Sidebar: React.FC<SidebarProps> = ({ isMobileOpen, onCloseMobile })
       items: [
         { id: 'schedule', label: 'Schedule', icon: Calendar },
         { id: 'exam-schedule', label: 'Exam Schedule', icon: CalendarDays },
-        { id: 'discipline-schedule', label: 'Discipline Schedule', icon: Search },
+        { id: 'discipline-schedule', label: 'Smart Timetable', icon: CalendarClock },
       ],
     },
     {

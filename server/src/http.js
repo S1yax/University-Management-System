@@ -40,3 +40,5 @@ export function replyDbRule(res, err) {
 }
 
 export const campusDateSQL = "timezone('Asia/Almaty', statement_timestamp())";
+
+export const SHOW_DEMO_CONTENT = process.env.NODE_ENV !== 'production' && process.env.SHOW_STUDENT_DEMO_CONTENT === 'true';

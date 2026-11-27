@@ -5,7 +5,7 @@
 //       Only the fields that are sent are changed. null clears a field.
 import { Router } from 'express';
 import { pool, PG } from '../db.js';
-import { reply, route, replyDbRule, isNumber, CURRENT_SEMESTER } from '../http.js';
+import { reply, route, replyDbRule, isNumber, CURRENT_SEMESTER, SHOW_DEMO_CONTENT } from '../http.js';
 
 import { roles, ownStudent, assignedCourse, audit } from '../auth.js';
 import { transaction } from '../transaction.js';
@@ -29,6 +29,19 @@ attestation.get('/api/attestation', ownStudent, route(async (req, res) => {
        AND ($4::varchar IS NULL OR EXISTS (SELECT 1 FROM courses c WHERE c.course_code = v_attestation.course_code AND c.teacher_id = $4))`,
     [studentId || null, courseCode || null, semester, req.user.teacherId]
   );
+  if (SHOW_DEMO_CONTENT && req.user.role === 'STUDENT') {
+    const sample = await pool.query(
+      `SELECT a.student_id, s.full_name, a.course_code, c.title, c.ects_credits,
+              a.attestation_1, a.attestation_2, a.rating, true AS admitted, a.final_exam,
+              a.total, a.letter, a.total AS max_possible, null AS updated_by, null AS updated_at, true AS demo
+       FROM portal_grade_examples a JOIN courses c USING (course_code) JOIN students s USING (student_id)
+       WHERE a.student_id = $1 AND a.semester = $2 AND ($3::varchar IS NULL OR a.course_code = $3)
+         AND NOT EXISTS (SELECT 1 FROM attestation real
+           WHERE (real.student_id, real.course_code, real.semester) = (a.student_id, a.course_code, a.semester))
+       ORDER BY a.course_code`, [req.user.studentId, semester, courseCode || null]
+    );
+    rows.push(...sample.rows);
+  }
   // NUMERIC comes from pg as text; the website wants numbers
   const items = rows.map((r) => ({
     ...r,

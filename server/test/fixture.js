@@ -3,7 +3,8 @@ import { randomBytes } from 'node:crypto';
 import { once } from 'node:events';
 import { readFile } from 'node:fs/promises';
 
-export async function fixture({ origin } = {}) {
+export async function fixture({ origin, demoContent = false } = {}) {
+  process.env.SHOW_STUDENT_DEMO_CONTENT = String(demoContent);
   if (origin) process.env.CORS_ORIGIN = origin;
   const schema = 'ums_qa_' + randomBytes(8).toString('hex');
   process.env.PGSCHEMA = schema;
@@ -62,7 +63,7 @@ export async function fixture({ origin } = {}) {
     created = true;
     const active = await pool.query('SELECT current_schema() AS name');
     if (active.rows[0].name !== schema) throw new Error('Test schema could not be isolated. Use a session pool or direct connection.');
-    for (const file of ['01_schema.sql','02_seed.sql','03_dashboards.sql','migrations/06_portal.sql','migrations/07_registration.sql','migrations/08_protect_legacy_credentials.sql']) {
+    for (const file of ['01_schema.sql','02_seed.sql','03_dashboards.sql','migrations/06_portal.sql','migrations/07_registration.sql','migrations/08_protect_legacy_credentials.sql','migrations/09_portal_activation.sql','migrations/10_student_engagement.sql','migrations/11_smart_timetable.sql']) {
       await pool.query(await readFile(new URL('../../database/' + file, import.meta.url), 'utf8'));
     }
     await pool.query('INSERT INTO portal_credentials (username, password_hash) SELECT username, $1 FROM portal_users', [await hashPassword(password)]);

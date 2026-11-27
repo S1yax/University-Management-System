@@ -60,6 +60,7 @@ export interface ServerEnrollment {
 }
 
 export interface AttestationItem {
+  demo?: boolean;
   student_id: string;
   full_name: string;
   course_code: string;

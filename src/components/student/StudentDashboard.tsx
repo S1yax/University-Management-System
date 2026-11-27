@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { selectSession, useApp } from '../../context/AppContext';
+import { campusNow, selectSession, useApp } from '../../context/AppContext';
 import { coursesApi, type AttestationItem } from '../../api/coursesApi';
 import {
   GraduationCap,
@@ -8,7 +8,6 @@ import {
   MapPin,
   TrendingUp,
   Award,
-  AlertTriangle,
   ArrowRight,
   Clock,
   Building,
@@ -24,6 +23,7 @@ import {
   ResponsiveContainer,
   BarChart,
   Bar,
+  Cell,
 } from 'recharts';
 
 export const StudentDashboard: React.FC = () => {
@@ -31,7 +31,7 @@ export const StudentDashboard: React.FC = () => {
   const [dataLoading, setDataLoading] = useState(false);
   const [dataError, setDataError] = useState('');
 
-  const { currentUser, classSessions, attendanceRecords, setActivePath, getStudentAttendanceRate, courses, enrollments, t, demoTime } = useApp();
+  const { currentUser, classSessions, attendanceRecords, setActivePath, checkSessionTime, enrollments, demoTime } = useApp();
   const studentId = currentUser?.studentId;
 
   useEffect(() => {
@@ -63,18 +63,29 @@ export const StudentDashboard: React.FC = () => {
   const approvedEnrollments = enrollments.filter((e) => e.studentId === studentId && e.status === 'Approved');
   const totalCredits = approvedEnrollments.reduce((sum, e) => sum + e.credits, 0);
   const approvedEcts = approvedEnrollments.reduce((sum, e) => sum + (e.ectsCredits ?? e.credits), 0);
-  const rates = approvedEnrollments.map((e) => getStudentAttendanceRate(e.studentId, e.courseCode));
-  const attended = rates.reduce((sum, rate) => sum + rate.attended, 0);
-  const total = rates.reduce((sum, rate) => sum + rate.total, 0);
-  const percentage = total ? Math.round(100 * attended / total) : null;
-  const bisRate = { percentage, isAtRisk: percentage !== null && percentage < 80 };
-  const activeSession = selectSession(classSessions, demoTime);
-  const isCheckedIn = attendanceRecords.some((r) => r.sessionId === activeSession?.id && r.verificationStatus === 'PRESENT');
+  const completedSessions = classSessions.filter((session) => session.completed);
+  const recordedSessions = completedSessions.filter((session) => session.hasAttendanceRecords);
+  const recordedIds = new Set(recordedSessions.map((session) => session.id));
+  const presentRecords = attendanceRecords.filter((record) => recordedIds.has(record.sessionId) && record.verificationStatus === 'PRESENT');
+  const scheduledHours = completedSessions.reduce((sum, session) => sum + (session.trackedHours ?? 1), 0);
+  const recordedHours = recordedSessions.reduce((sum, session) => sum + (session.trackedHours ?? 1), 0);
+  const attendance = recordedHours ? Math.round(100 * presentRecords.length / recordedHours) : null;
+  const scheduledAttendance = scheduledHours ? Math.round(100 * presentRecords.length / scheduledHours) : null;
+  const today = campusNow().date;
+  const todaySession = selectSession(classSessions, demoTime);
+  const upcoming = classSessions.find((session) => session.date > today);
+  const featuredSession = todaySession ?? upcoming;
+  const sessionTime = todaySession ? checkSessionTime(todaySession.id) : undefined;
+  const canCheckIn = todaySession?.status === 'OPEN' && sessionTime?.active;
+  const isCheckedIn = attendanceRecords.some((r) => r.sessionId === todaySession?.id &&
+    r.hourSlot === sessionTime?.currentHourSlot && r.verificationStatus === 'PRESENT');
+  const gpa = currentUser?.gpa ?? currentUser?.demoGpa;
+  const isDemoGpa = currentUser?.gpa == null && currentUser?.demoGpa != null;
   const weeks = new Map<number, { present: number; total: number }>();
-  for (const session of classSessions.filter((item) => item.completed)) {
+  for (const session of recordedSessions) {
     const week = weeks.get(session.sessionNumber) ?? { present: 0, total: 0 };
     week.total += session.trackedHours ?? 1;
-    week.present += attendanceRecords.filter((r) => r.sessionId === session.id && r.verificationStatus === 'PRESENT').length;
+    week.present += presentRecords.filter((record) => record.sessionId === session.id).length;
     weeks.set(session.sessionNumber, week);
   }
   const attendanceTrendData = [...weeks].sort(([a], [b]) => a - b).map(([week, value]) => ({
@@ -85,6 +96,7 @@ export const StudentDashboard: React.FC = () => {
 const gradeData = attestationItems.map((item) => ({
   course: item.course_code,
   score: item.total ?? item.rating,
+  demo: item.demo,
 }));
 
   return (
@@ -122,15 +134,15 @@ const gradeData = attestationItems.map((item) => ({
         <div className="bg-white rounded-2xl border border-[#D6E2F5] p-5 shadow-sm space-y-1">
           <div className="flex items-center justify-between text-slate-400">
             <span className="text-xs font-bold uppercase tracking-wider text-slate-500">
-              Cumulative GPA
+              {isDemoGpa ? 'Demo GPA' : 'Cumulative GPA'}
             </span>
             <Award className="w-5 h-5 text-[#0B3D91]" />
           </div>
           <div className="text-3xl sm:text-4xl font-extrabold text-[#0B3D91]">
-            {currentUser?.gpa?.toFixed(2) ?? '—'}
+            {gpa?.toFixed(2) ?? '—'}
           </div>
           <p className="text-[11px] text-slate-500">
-            {currentUser?.gpa == null ? 'GPA not available' : 'Grading scale: 4.00'}
+            {isDemoGpa ? 'Example final grades · 4.00 scale' : gpa == null ? 'GPA not available' : 'Grading scale: 4.00'}
           </p>
         </div>
 
@@ -154,24 +166,20 @@ const gradeData = attestationItems.map((item) => ({
         <div className="bg-white rounded-2xl border border-[#D6E2F5] p-5 shadow-sm space-y-1">
           <div className="flex items-center justify-between text-slate-400">
             <span className="text-xs font-bold uppercase tracking-wider text-slate-500">
-              Attendance
+              Recorded Attendance
             </span>
             <MapPin className="w-5 h-5 text-[#0B3D91]" />
           </div>
-          <div className={`text-3xl sm:text-4xl font-extrabold ${bisRate.isAtRisk ? 'text-red-600' : 'text-emerald-700'}`}>
-            {percentage === null ? '—' : percentage + '%'}
+          <div className="text-3xl sm:text-4xl font-extrabold text-[#0B3D91]">
+            {attendance === null ? '—' : attendance + '%'}
           </div>
-          <div className="text-[11px]">
-            {percentage === null ? 'No completed classes' : bisRate.isAtRisk ? (
-              <span className="text-red-600 font-bold flex items-center gap-1">
-                <AlertTriangle className="w-3 h-3" /> Below 80% (Disqualification Risk)
-              </span>
-            ) : (
-              <span className="text-emerald-700 font-bold flex items-center gap-1">
-                <CheckCircle2 className="w-3 h-3" /> Meets the 80% attendance threshold
-              </span>
-            )}
-          </div>
+          <p className="text-[11px] text-slate-600">
+            {recordedHours ? presentRecords.length + ' of ' + recordedHours + ' hours in sessions with check-ins' : 'No check-ins recorded for your completed sessions'}
+          </p>
+          {recordedHours < scheduledHours && <p className="text-[11px] text-slate-500">
+            {completedSessions.length - recordedSessions.length} completed sessions have no check-in data.
+            {' '}Across all scheduled hours: {scheduledAttendance}%.
+          </p>}
         </div>
       </div>
 
@@ -180,19 +188,19 @@ const gradeData = attestationItems.map((item) => ({
         <div className="space-y-1.5">
           <div className="inline-flex items-center gap-2 px-2.5 py-0.5 rounded-full bg-white/20 text-xs font-bold">
             <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
-            <span>TODAY'S LECTURE SESSION</span>
+            <span>{todaySession ? 'TODAY’S LECTURE SESSION' : 'NEXT SCHEDULED LECTURE'}</span>
           </div>
           <h3 className="text-xl font-extrabold">
-            {activeSession ? activeSession.courseCode + ': ' + activeSession.title : 'No lessons today'}
+            {featuredSession ? featuredSession.courseCode + ' · ' + featuredSession.title : 'No upcoming lectures'}
           </h3>
           <p className="text-xs text-blue-100 flex items-center gap-3">
-            {activeSession && <span>{activeSession.roomName} · {activeSession.startTime}–{activeSession.endTime} · {activeSession.instructorName}</span>}
+            {featuredSession && <span>{featuredSession.date} · {featuredSession.startTime}–{featuredSession.endTime} · {featuredSession.roomName} · {featuredSession.instructorName}</span>}
           </p>
         </div>
 
         <button
           type="button"
-          onClick={() => setActivePath('attendance-checkin')}
+          onClick={() => setActivePath(canCheckIn || isCheckedIn ? 'attendance-checkin' : 'schedule')}
           className={`px-5 py-3 rounded-xl font-extrabold text-xs flex items-center gap-2 transition-all shadow-md shrink-0 ${
             isCheckedIn
               ? 'bg-emerald-500 text-white cursor-default'
@@ -207,7 +215,7 @@ const gradeData = attestationItems.map((item) => ({
           ) : (
             <>
               <MapPin className="w-4 h-4" />
-              <span>Check in with GPS</span>
+              <span>{canCheckIn ? 'Check in with GPS' : 'View schedule'}</span>
             </>
           )}
         </button>
@@ -219,11 +227,11 @@ const gradeData = attestationItems.map((item) => ({
         <div className="bg-white rounded-2xl border border-[#D6E2F5] p-5 shadow-sm space-y-3">
           <div className="flex items-center justify-between">
             <h3 className="text-xs font-bold uppercase tracking-wider text-[#0F1F3D]">
-              Attendance Consistency Trend
+              Recorded Attendance Trend
             </h3>
             <span className="text-[11px] font-bold text-[#0B3D91]">{attendanceTrendData.length} weeks</span>
           </div>
-          {!attendanceTrendData.length ? <p className="py-6 text-sm text-slate-500">No completed lessons.</p> : <div className="h-56 w-full">
+          {!attendanceTrendData.length ? <p className="py-6 text-sm text-slate-500">No recorded attendance to chart.</p> : <div className="h-56 w-full">
             <ResponsiveContainer width="100%" height="100%">
               <AreaChart data={attendanceTrendData}>
                 <defs>
@@ -262,7 +270,7 @@ const gradeData = attestationItems.map((item) => ({
             <h3 className="text-xs font-bold uppercase tracking-wider text-[#0F1F3D]">
               Course Performance Assessment
             </h3>
-            <span className="text-[11px] font-bold text-[#0B3D91]">Current Scores (100)</span>
+            <span className="text-[11px] font-bold text-[#0B3D91]">{gradeData.some((item) => item.demo) ? 'Includes demo scores' : 'Current Scores (100)'}</span>
           </div>
           {dataLoading ? <p role="status" className="py-6 text-sm">Loading assessments…</p> : dataError ? <p role="alert" className="py-6 text-sm text-red-700">{dataError}</p> : !gradeData.length ? <p className="py-6 text-sm text-slate-500">No grades available.</p> : <div className="h-56 w-full">
             <ResponsiveContainer width="100%" height="100%">
@@ -278,7 +286,9 @@ const gradeData = attestationItems.map((item) => ({
                     fontSize: '12px',
                   }}
                 />
-                <Bar dataKey="score" fill="#0B3D91" radius={[6, 6, 0, 0]} />
+                <Bar dataKey="score" radius={[6, 6, 0, 0]}>
+                  {gradeData.map((item) => <Cell key={item.course} fill={item.demo ? '#5079B5' : '#0B3D91'} />)}
+                </Bar>
               </BarChart>
             </ResponsiveContainer>
           </div>}

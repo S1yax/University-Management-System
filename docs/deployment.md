@@ -8,6 +8,16 @@ The portal administrator can manage students, teachers, staff, classrooms, assig
 
 Give each authorized participant a separate identity and share initial access with the account holder through an approved private channel. The vault owner can use `scripts/copy-initial-password.ps1 -Username <username>` to pass one initial password through the Windows clipboard. Supabase project access is needed only for team members performing database maintenance.
 
+## Local first-time setup
+
+Set `LOCAL_INITIAL_SETUP=true` in `server/.env` while using the portal on a trusted computer. Restart Express and open `http://localhost:5173/`. Pending users can choose their username and set a password. Use the sign-in button for accounts that already have a password. This mode is available only on loopback connections outside production. Keep it disabled for hosted deployments.
+
+## Single-use activation links
+
+Use `./scripts/bootstrap.ps1 -Activation` on Windows after provisioning the roster or resetting accounts. It issues links to users who still need to choose a password and stores them in the DPAPI vault. A link replaces the temporary password for that account and expires after seven days. Reissuing links invalidates the previous links for pending accounts.
+
+Use `./scripts/copy-activation-link.ps1 -Username <username>` to copy a private local link. Use `-PortalUrl https://<frontend-host>/` when sharing for an HTTPS deployment. Each user opens only their own link and creates their password in the portal.
+
 ## HTTPS hosting
 
 Render can host the educational preview as an Express web service and a React static site. Connect the reviewed Git branch in Render. Read the current free service limits before choosing a plan. [Express on Render](https://render.com/docs/deploy-node-express-app) · [Static sites](https://render.com/docs/static-sites) · [Free service limits](https://render.com/docs/free)
@@ -36,6 +46,10 @@ Use a separate seeded database or schema and a private deployment. Set `SHOW_DEM
 2. Use a fresh test student to make a registration. Approve it in **Enrollments** with an admin or manager account and check the teacher's roster.
 3. In **Live Attendance**, select the relevant session and open its check-in window. Submit a check-in or manual review as an approved student. Check the teacher's session and the manager's attendance report.
 4. Reload, sign out, and sign back in. The academic records should remain available.
+
+## Demo student content
+
+After applying all migrations, run `database/demo_portal_content.sql` and `database/demo_smart_timetable.sql` on the demo database. Set `SHOW_STUDENT_DEMO_CONTENT=true` on the local backend and restart it. Example grades, campus stories, sample messages, and timetable assignments are labelled as demo content. Course feedback and personal timetable tasks are available independently of the demo setting.
 
 ## Backup and recovery
 

@@ -8,6 +8,7 @@ export interface Notification {
   content: string;
   date: string;
   read: boolean;
+  demo?: boolean;
 }
 
 export interface Workspace {

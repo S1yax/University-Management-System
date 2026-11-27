@@ -3,6 +3,7 @@ import { promisify } from 'node:util';
 import { Router } from 'express';
 import { pool } from './db.js';
 import { reply, route } from './http.js';
+import { transaction } from './transaction.js';
 
 const scrypt = promisify(derive);
 const dummyHash = '0'.repeat(32) + ':' + '0'.repeat(128);
@@ -41,7 +42,8 @@ export const authenticate = route(async (req, res, next) => {
     `SELECT u.*, p.phone, c.must_change FROM portal_sessions ps JOIN portal_users u USING (username)
      JOIN portal_credentials c USING (username)
      LEFT JOIN portal_profiles p ON p.username = u.username
-     WHERE ps.token_hash = $1 AND ps.expires_at > now() LIMIT 2`, [digest(token)]);
+     WHERE ps.token_hash = $1 AND ps.expires_at > now()
+       AND NOT EXISTS (SELECT 1 FROM portal_account_activation a WHERE a.username = u.username) LIMIT 2`, [digest(token)]);
   if (rows.length !== 1) return reply(res, 401, 'SIGN_IN_REQUIRED', 'Your session has expired.');
   req.user = publicUser(rows[0]);
   req.sessionHash = digest(token);
@@ -99,7 +101,8 @@ auth.post('/api/auth/login', route(async (req, res) => {
   attempts.set(key, attempt);
   const { rows } = await pool.query(
     `SELECT u.*, c.password_hash, c.must_change FROM portal_users u JOIN portal_credentials c USING (username)
-     WHERE u.username = $1 LIMIT 2`, [name]);
+     WHERE u.username = $1
+       AND NOT EXISTS (SELECT 1 FROM portal_account_activation a WHERE a.username = u.username) LIMIT 2`, [name]);
   const row = rows.length === 1 ? rows[0] : null;
   if (!await matches(password, row?.password_hash)) return reply(res, 401, 'INVALID_CREDENTIALS', 'Invalid username or password.');
   attempt.count--;
@@ -111,7 +114,8 @@ auth.post('/api/auth/login', route(async (req, res) => {
     await client.query('DELETE FROM portal_sessions WHERE expires_at <= now() AND username = $1', [name]);
     const inserted = await client.query(
       `INSERT INTO portal_sessions (token_hash, username, expires_at)
-       SELECT $1, username, now() + $3::interval FROM portal_credentials WHERE username = $2 AND password_hash = $4`,
+       SELECT $1, c.username, now() + $3::interval FROM portal_credentials c WHERE c.username = $2 AND c.password_hash = $4
+         AND NOT EXISTS (SELECT 1 FROM portal_account_activation a WHERE a.username = c.username)`,
       [digest(token), name, remember === true ? '7 days' : '8 hours', row.password_hash]
     );
     if (!inserted.rowCount) {
@@ -127,6 +131,81 @@ auth.post('/api/auth/login', route(async (req, res) => {
     client.release();
   }
   res.json({ user, token });
+}));
+
+const localSetupOnly = (req, res, next) => {
+  const loopback = new Set(['127.0.0.1', '::1', '::ffff:127.0.0.1']);
+  const allowedOrigins = new Set(['http://localhost:5173', 'http://127.0.0.1:5173', 'http://[::1]:5173']);
+  const origin = req.get('Origin');
+  if (process.env.LOCAL_INITIAL_SETUP !== 'true' || process.env.NODE_ENV === 'production' ||
+      !loopback.has(req.socket.remoteAddress) || (origin && !allowedOrigins.has(origin)) ||
+      !/^(localhost|127\.0\.0\.1|\[::1\])(:\d+)?$/.test(req.get('Host') || '')) {
+    return reply(res, 404, 'NOT_FOUND', 'Local account setup is unavailable.');
+  }
+  next();
+};
+
+async function saveInitialPassword(db, user, password, source) {
+  await db.query('UPDATE portal_credentials SET password_hash = $1, must_change = false WHERE username = $2',
+    [await hashPassword(password), user.username]);
+  await db.query('DELETE FROM portal_sessions WHERE username = $1', [user.username]);
+  await audit(publicUser(user), 'ACCOUNT_ACTIVATED', source, db);
+}
+
+auth.get('/api/auth/setup', localSetupOnly, route(async (_req, res) => {
+  const { rows } = await pool.query(`SELECT u.username, u.full_name AS "fullName", u.role
+    FROM portal_users u JOIN portal_credentials c USING (username)
+    WHERE c.must_change ORDER BY u.username`);
+  res.json({ accounts: rows });
+}));
+
+auth.post('/api/auth/setup', localSetupOnly, route(async (req, res) => {
+  const { username, password } = req.body ?? {};
+  if (typeof username !== 'string' || !/^[a-zA-Z0-9_.-]{2,100}$/.test(username.trim()) || !validPassword(password)) {
+    return reply(res, 400, 'BAD_REQUEST', 'Enter your username and a password of 12 to 128 characters.');
+  }
+  const name = username.trim().toLowerCase();
+  const saved = await transaction(async (db) => {
+    const locked = await db.query('SELECT must_change FROM portal_credentials WHERE username = $1 FOR UPDATE', [name]);
+    if (!locked.rows[0]?.must_change) return false;
+    const { rows } = await db.query('SELECT * FROM portal_users WHERE username = $1 LIMIT 2', [name]);
+    if (rows.length !== 1) return false;
+    await db.query('DELETE FROM portal_account_activation WHERE username = $1', [name]);
+    await saveInitialPassword(db, rows[0], password, 'Set a password on the local setup screen');
+    return true;
+  });
+  if (!saved) return reply(res, 409, 'SETUP_UNAVAILABLE', 'This account is unavailable for first-time setup. Use Sign in if you already chose a password.');
+  res.json({ username: name });
+}));
+
+auth.post('/api/auth/activate', route(async (req, res) => {
+  const { token, password } = req.body ?? {};
+  if (typeof token !== 'string' || !/^[a-f0-9]{64}$/.test(token) || !validPassword(password)) {
+    return reply(res, 400, 'BAD_REQUEST', 'Use an activation link and choose a password of 12 to 128 characters.');
+  }
+
+  const username = await transaction(async (db) => {
+    const lookup = await db.query(
+      'SELECT username FROM portal_account_activation WHERE token_hash = $1 AND expires_at > now()',
+      [digest(token)]
+    );
+    if (!lookup.rowCount) return null;
+    const name = lookup.rows[0].username;
+    const locked = await db.query('SELECT must_change FROM portal_credentials WHERE username = $1 FOR UPDATE', [name]);
+    if (!locked.rows[0]?.must_change) return null;
+    const claimed = await db.query(
+      'DELETE FROM portal_account_activation WHERE username = $1 AND token_hash = $2 AND expires_at > now() RETURNING username',
+      [name, digest(token)]
+    );
+    if (!claimed.rowCount) return null;
+    const { rows } = await db.query('SELECT * FROM portal_users WHERE username = $1 LIMIT 2', [name]);
+    if (rows.length !== 1) return null;
+    await saveInitialPassword(db, rows[0], password, 'Set a password using a single-use activation link');
+    return name;
+  });
+
+  if (!username) return reply(res, 400, 'INVALID_ACTIVATION', 'This activation link has expired or has already been used.');
+  res.json({ username });
 }));
 
 auth.get('/api/auth/me', authenticate, (req, res) => res.json({ user: req.user }));

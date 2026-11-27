@@ -131,17 +131,20 @@ export const SchedulePage: React.FC = () => {
 // GRADES & TRANSCRIPT PAGE
 export const GradesTranscriptPage: React.FC = () => {
   const { currentUser, enrollments } = useApp();
-  const myGrades = enrollments.filter((e) => e.studentId === currentUser?.id && e.grade !== undefined);
+  const myGrades = enrollments.filter((e) => e.studentId === currentUser?.id && (e.grade !== undefined || e.demoGrade !== undefined));
+  const sampleRows = myGrades.some((row) => !row.grade && row.demoGrade);
+  const actualGpa = currentUser?.gpa;
+  const demoGpa = currentUser?.demoGpa;
 
   return (
     <div className="space-y-6 max-w-6xl mx-auto pb-12">
       <div className="bg-white rounded-2xl border border-[#D6E2F5] p-5 sm:p-6 shadow-sm flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div>
           <h2 className="text-xl font-extrabold text-[#0F1F3D]">Academic Transcript & Grades</h2>
-          <p className="text-xs text-slate-500 mt-1">Official Electronic Transcript • Cumulative GPA: <strong>{currentUser?.gpa?.toFixed(2) ?? 'GPA not available'}</strong></p>
+          <p className="text-xs text-slate-500 mt-1">{actualGpa != null ? 'Cumulative GPA' : demoGpa != null ? 'Demo GPA' : 'Cumulative GPA'} · <strong>{(actualGpa ?? demoGpa)?.toFixed(2) ?? 'GPA not available'}</strong></p>
         </div>
         <div className="px-4 py-2 bg-[#E8F0FE] text-[#0B3D91] font-bold text-xs rounded-xl border border-[#D6E2F5]">
-          Final grades
+          {sampleRows ? 'Includes demo grades' : 'Final grades'}
         </div>
       </div>
 
@@ -160,13 +163,13 @@ export const GradesTranscriptPage: React.FC = () => {
             {!myGrades.length && <tr><td colSpan={5} className="p-4">No final grades available.</td></tr>}
             {myGrades.map((g, idx) => (
               <tr key={g.id} className={idx % 2 === 0 ? 'bg-white' : 'bg-[#F5F8FD]'}>
-                <td className="py-3 px-4 font-bold text-[#0F1F3D]">{g.courseCode}</td>
+                <td className="py-3 px-4 font-bold text-[#0F1F3D]">{g.courseCode}{!g.grade && g.demoGrade && <span className="ml-2 text-xs text-amber-800">Demo</span>}</td>
                 <td className="py-3 px-4 text-slate-600">{g.semester}</td>
-                <td className="py-3 px-4 font-semibold">{g.credits} ECTS</td>
-                <td className="py-3 px-4 font-bold text-[#0B3D91]">{g.score == null ? '—' : g.score + '/100'}</td>
+                <td className="py-3 px-4 font-semibold">{g.ectsCredits ?? g.credits} ECTS</td>
+                <td className="py-3 px-4 font-bold text-[#0B3D91]">{(g.score ?? g.demoScore) == null ? '—' : (g.score ?? g.demoScore) + '/100'}</td>
                 <td className="py-3 px-4">
                   <span className="px-2 py-0.5 rounded font-extrabold bg-blue-50 text-[#0B3D91] border border-blue-200">
-                    {g.grade ?? '—'}
+                    {g.grade ?? g.demoGrade ?? '—'}
                   </span>
                 </td>
               </tr>
@@ -378,7 +381,7 @@ export const MessagesPage: React.FC = () => {
     {notifications.map((message) => <article key={message.id}
       className="rounded-xl border border-[#D6E2F5] bg-white p-5">
       <h3 className="font-semibold">{message.subject}</h3>
-      <p className="text-xs text-slate-500">{message.sender} · {new Date(message.date).toLocaleString()}</p>
+      <p className="text-xs text-slate-500">{message.sender} · {new Date(message.date).toLocaleString()}{message.demo ? ' · Demo message' : ''}</p>
       <p className="my-2 text-sm">{message.content}</p>
       {!message.read && <button className="text-sm text-[#0B3D91] underline"
         onClick={() => void mutate('/notifications/' + message.id, 'PATCH', {})}>Mark as read</button>}

@@ -4,6 +4,7 @@ import { useApp } from './context/AppContext';
 import { LoginPage } from './components/auth/LoginPage';
 import { TopBar } from './components/layout/TopBar';
 import { Sidebar } from './components/layout/Sidebar';
+import { SmartTimetablePage } from './components/student/SmartTimetablePage';
 import { StudentDashboard } from './components/student/StudentDashboard';
 import { ProfilePage } from './components/profile/ProfilePage';
 import { AttendanceCheckInPage } from './components/student/AttendanceCheckInPage';
@@ -17,6 +18,7 @@ import { DatabaseErdPage } from './components/project/DatabaseErdPage';
 import { Team39Page } from './components/project/Team39Page';
 import { ProjectStatusPage } from './components/project/ProjectStatusPage';
 import { AccessDeniedPage } from './components/common/AccessDeniedPage';
+import { CourseFeedbackPage } from './components/pages/CourseFeedbackPage';
 import { AssessmentsPage, EventsPage } from './components/pages/AcademicPages';
 import { ManagementPage } from './components/admin/ManagementPage';
 import { ChangePasswordPage } from './components/auth/ChangePasswordPage';
@@ -43,7 +45,6 @@ import {
   FinancialCabinetPage,
   BillingPage,
   RequestsPage,
-  SurveysPage,
   EntryTestsPage,
   MobilityPage,
   DormitoryPage,
@@ -138,7 +139,7 @@ export const App: React.FC = () => {
       case 'exam-schedule':
         return 'Exam Schedule';
       case 'discipline-schedule':
-        return 'Discipline Schedule';
+        return 'Smart Timetable';
       case 'financial-cabinet':
         return 'Financial Cabinet';
       case 'billing':
@@ -251,7 +252,7 @@ export const App: React.FC = () => {
       case 'exam-schedule':
         return <ExamSchedulePage />;
       case 'discipline-schedule':
-        return <SchedulePage />;
+        return <SmartTimetablePage />;
       case 'financial-cabinet':
         return <FinancialCabinetPage />;
       case 'billing':
@@ -263,7 +264,7 @@ export const App: React.FC = () => {
       case 'requests':
         return <RequestsPage />;
       case 'surveys':
-        return <SurveysPage />;
+        return <CourseFeedbackPage />;
       case 'entry-tests':
         return <EntryTestsPage />;
       case 'mobility':

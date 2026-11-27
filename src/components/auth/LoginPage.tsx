@@ -4,6 +4,7 @@ import { Eye, EyeOff, ShieldCheck, ChevronDown, ChevronUp, UserCheck, AlertCircl
 import { Language } from '../../types';
 import { api } from '../../api/portalApi';
 import type { User } from '../../types';
+import { ActivateAccountPage, type SetupAccount } from './ActivateAccountPage';
 
 export const LoginPage: React.FC = () => {
   const { login, language, setLanguage, t, idleLoggedOut, workspaceError } = useApp();
@@ -16,6 +17,9 @@ export const LoginPage: React.FC = () => {
   const [forgotPasswordNotice, setForgotPasswordNotice] = useState(false);
   const [remember, setRemember] = useState(false);
   const [users, setUsers] = useState<User[]>([]);
+  const [setupAccounts, setSetupAccounts] = useState<SetupAccount[]>([]);
+  const [showSetup, setShowSetup] = useState(true);
+  const [activationToken] = useState(() => new URLSearchParams(window.location.hash.slice(1)).get('activate'));
 
   useEffect(() => {
     if (import.meta.env.VITE_SHOW_DEMO_ACCOUNTS !== 'true') return;
@@ -25,6 +29,15 @@ export const LoginPage: React.FC = () => {
     }).catch(() => undefined);
     return () => { active = false; };
   }, []);
+
+  useEffect(() => {
+    if (activationToken) return;
+    let active = true;
+    api<{ accounts: SetupAccount[] }>('/auth/setup').then(({ accounts }) => {
+      if (active) setSetupAccounts(accounts);
+    }).catch(() => undefined);
+    return () => { active = false; };
+  }, [activationToken]);
 
   const handleSignIn = async (event: React.FormEvent) => {
     event.preventDefault();
@@ -40,6 +53,9 @@ export const LoginPage: React.FC = () => {
     setPasswordInput('');
     setErrorMessage(null);
   };
+
+  if (activationToken) return <ActivateAccountPage token={activationToken} />;
+  if (showSetup && setupAccounts.length) return <ActivateAccountPage accounts={setupAccounts} onSignIn={() => setShowSetup(false)} />;
 
   const rememberCheckbox = (
     <label className="flex items-start gap-2 cursor-pointer select-none">
@@ -113,6 +129,10 @@ export const LoginPage: React.FC = () => {
             </div>
           )}
 
+          {setupAccounts.length > 0 && <button type="button" onClick={() => setShowSetup(true)}
+            className="mb-3 text-sm font-semibold text-[#0B3D91] underline">
+            {language === 'RU' ? 'Задать пароль при первом входе' : language === 'KZ' ? 'Алғашқы кіру құпиясөзін орнату' : 'Set your password for first sign-in'}
+          </button>}
           {workspaceError && <p role="status" className="mb-3 text-sm text-red-700">{workspaceError}</p>}
           <form onSubmit={handleSignIn} className="space-y-4">
             {/* Login Field */}
@@ -191,7 +211,7 @@ export const LoginPage: React.FC = () => {
               <div className="p-3 bg-[#E8F0FE] border border-[#D6E2F5] rounded-xl flex items-start gap-2 animate-fadeIn">
                 <ShieldCheck className="w-4 h-4 text-[#0B3D91] mt-0.5 shrink-0" />
                 <div className="text-xs text-[#0F1F3D]">
-                  Contact your portal administrator to request a password reset.
+                  Ask your portal administrator for a private activation link if you are setting up your account.
                 </div>
               </div>
             )}

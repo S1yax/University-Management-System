@@ -109,6 +109,33 @@ function useWorkspace() {
   }, [clearSession]);
 
   const userId = workspace?.user.id;
+  const canReceiveTimetableReminders = workspace?.user.role === 'STUDENT' && !workspace.user.passwordChangeRequired;
+
+  useEffect(() => {
+    if (!userId || !canReceiveTimetableReminders) return;
+    let active = true;
+    let running = false;
+    const check = async () => {
+      if (running || document.hidden) return;
+      running = true;
+      try {
+        const result = await api<{ created: number }>('/timetable/reminders', 'POST');
+        if (active && result.created > 0) await refreshFromServer();
+      } catch {
+        // The periodic check retries when the server is available.
+      } finally {
+        running = false;
+      }
+    };
+    const timer = window.setInterval(check, 60000);
+    window.addEventListener('focus', check);
+    void check();
+    return () => {
+      active = false;
+      window.clearInterval(timer);
+      window.removeEventListener('focus', check);
+    };
+  }, [userId, canReceiveTimetableReminders, refreshFromServer]);
   useEffect(() => {
     if (!userId) return;
     let lastActivity = Date.now();

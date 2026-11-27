@@ -14,6 +14,7 @@ export interface User {
   studentId?: string; // e.g., '24B031926'
   major?: string;      // e.g., 'Information Systems'
   year?: number;       // e.g., 2
+  demoGpa?: number | null;
   gpa?: number;        // e.g., 3.85
   creditsEnrolled?: number; // e.g., 18
   department?: string; // e.g., 'School of Information Technology and Engineering'
@@ -69,6 +70,7 @@ export interface ClassSession {
   status: 'OPEN' | 'CLOSED';
   trackedHours?: number;
   completed?: boolean;
+  hasAttendanceRecords?: boolean;
 }
 
 export interface Enrollment {
@@ -80,6 +82,8 @@ export interface Enrollment {
   status: 'Approved' | 'Pending' | 'Rejected';
   grade?: string;
   score?: number;
+  demoGrade?: string;
+  demoScore?: number;
   ectsCredits?: number;
   credits: number;
 }

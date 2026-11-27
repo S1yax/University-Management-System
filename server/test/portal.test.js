@@ -1,7 +1,7 @@
 import { after, before, test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
-import { randomBytes } from 'node:crypto';
+import { createHash, randomBytes } from 'node:crypto';
 import { fixture } from './fixture.js';
 
 let qa;
@@ -116,4 +116,49 @@ test('Two students competing for the last seat cannot both register', async () =
     qa.call('POST', '/enrollments', { studentId, courseCode: 'ENG102' }, tokens[index])));
   assert.deepEqual(results.map((r) => r.code).sort(), [201, 409]);
   assert.equal(results.find((r) => r.code === 409).body.status, 'COURSE_FULL');
+});
+
+
+test('A pending account sets its password from a single-use link', async () => {
+  const username = 'e_yugai';
+  const token = randomBytes(32).toString('hex');
+  const hash = createHash('sha256').update(token).digest('hex');
+  const password = randomBytes(24).toString('base64url');
+  const old = await qa.login(username);
+  assert.equal(old.code, 200);
+  await qa.pool.query('UPDATE portal_credentials SET must_change = true WHERE username = $1', [username]);
+  await qa.pool.query("INSERT INTO portal_account_activation VALUES ($1, $2, now() + interval '1 hour')", [username, hash]);
+  assert.equal((await qa.login(username)).code, 401);
+  assert.equal((await qa.call('GET', '/auth/me', undefined, old.body.token)).code, 401);
+  assert.equal((await qa.call('POST', '/auth/activate', { token: 'a'.repeat(64), password })).code, 400);
+  const activated = await qa.call('POST', '/auth/activate', { token, password });
+  assert.equal(activated.code, 200);
+  assert.equal(activated.body.username, username);
+  assert.equal((await qa.call('POST', '/auth/activate', { token, password })).code, 400);
+  const newLogin = await qa.call('POST', '/auth/login', { username, password });
+  assert.equal(newLogin.code, 200);
+  assert.equal(newLogin.body.user.passwordChangeRequired, false);
+});
+
+
+test('Loopback setup accepts a chosen password once and rejects an external origin', async () => {
+  const username = 'd_tleubay';
+  const password = randomBytes(24).toString('base64url');
+  try {
+    assert.equal((await qa.call('GET', '/auth/setup')).code, 404);
+    process.env.LOCAL_INITIAL_SETUP = 'true';
+    const remote = await fetch(qa.base + '/auth/setup', { headers: { Origin: 'https://example.test' } });
+    assert.equal(remote.status, 404);
+    const locked = await qa.pool.query(
+      'UPDATE portal_credentials SET must_change = true WHERE username = $1 RETURNING username', [username]);
+    assert.equal(locked.rowCount, 1);
+    const roster = await qa.call('GET', '/auth/setup');
+    assert.equal(roster.code, 200);
+    assert.ok(roster.body.accounts.some((account) => account.username === username));
+    assert.equal((await qa.call('POST', '/auth/setup', { username, password })).code, 200);
+    assert.equal((await qa.call('POST', '/auth/setup', { username, password })).code, 409);
+    assert.equal((await qa.call('POST', '/auth/login', { username, password })).code, 200);
+  } finally {
+    delete process.env.LOCAL_INITIAL_SETUP;
+  }
 });

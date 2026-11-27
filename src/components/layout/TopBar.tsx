@@ -178,7 +178,7 @@ export const TopBar: React.FC<TopBarProps> = ({ onToggleMobileSidebar, pageTitle
                       {notif.content}
                     </p>
                     <span className="inline-block mt-1.5 text-[10px] font-medium text-[#0B3D91]">
-                      {notif.sender} ({notif.sender})
+                      {notif.sender}{notif.demo ? ' · Demo message' : ''}
                     </span>
                   </div>
                 ))}
