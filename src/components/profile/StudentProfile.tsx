@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { Eye, EyeOff, GraduationCap, KeyRound, Landmark, Receipt, User as UserIcon } from 'lucide-react';
 import { useApp } from '../../context/AppContext';
+import { ContactSettings } from './ContactSettings';
 import { getStudentExtras } from '../../data/studentExtras';
 
 type MainTab = 'info' | 'personal' | 'finance' | 'billing';
@@ -147,6 +148,8 @@ export const StudentProfile: React.FC = () => {
         </div>
       </div>
 
+      {tab === 'info' && <ContactSettings />}
+
       {/* Student Information */}
       {tab === 'info' && (
         <div className={`${card} space-y-6`}>
@@ -173,7 +176,7 @@ export const StudentProfile: React.FC = () => {
           <div>
             <SectionTitle>Administrative</SectionTitle>
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-6 gap-y-4">
-              <Field label="Enrollment Status" value="Active" />
+              <Field label="Enrollment Status" value={x.enrollmentStatus} />
               <Field label="Tuition Type" value={x.tuitionType} />
               <Field label="Entrance Year" value={x.entranceYear} />
             </div>

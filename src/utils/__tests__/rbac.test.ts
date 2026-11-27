@@ -27,12 +27,14 @@ describe('Role-based access (canAccess)', () => {
     expect(canAccess('MANAGER', 'gradebook')).toBe(false);
   });
 
-  it('lets only the admin open the audit log and the user management', () => {
+  it('allows managers and admins to open audit logs and reserves user management for admins', () => {
     expect(canAccess('ADMIN', 'audit-log')).toBe(true);
     expect(canAccess('ADMIN', 'roles-permissions')).toBe(true);
     expect(canAccess('ADMIN', 'attendance-checkin')).toBe(false);
-    const roles: UserRole[] = ['STUDENT', 'TEACHER', 'MANAGER'];
+    const roles: UserRole[] = ['STUDENT', 'TEACHER'];
     roles.forEach((role) => expect(canAccess(role, 'audit-log')).toBe(false));
+    expect(canAccess('MANAGER', 'audit-log')).toBe(true);
+    expect(canAccess('MANAGER', 'users')).toBe(false);
   });
 
   it('lets every role open the shared pages (including change-password)', () => {

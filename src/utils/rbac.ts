@@ -60,6 +60,7 @@ export const ROLE_PATHS: Record<UserRole, string[]> = {
     'enrollments',
     'at-risk-attendance',
     'performance-reports',
+    'audit-log',
     'mentors',
     'messages',
     'news',

@@ -1,5 +1,5 @@
 import React, { useState, useMemo } from 'react';
-import { useApp } from '../../context/AppContext';
+import { selectSession, useApp } from '../../context/AppContext';
 import { DataSourceBadge } from '../common/DataSourceBadge';
 import { TestTimePicker } from '../common/TestTimePicker';
 import {
@@ -27,6 +27,7 @@ import { VerificationStatus, AttendanceRecord } from '../../types';
 export const LiveAttendancePage: React.FC = () => {
   const {
     classSessions,
+    demoTime,
     toggleSessionStatus,
     attendanceRecords,
     users,
@@ -41,26 +42,15 @@ export const LiveAttendancePage: React.FC = () => {
     checkSessionTime,
   } = useApp();
 
-  // Teacher courses: Ainur Issabek teaches BIS201 (Monday) and IS202 (Tuesday)
-  const teacherCourses = useMemo(() => {
-    return courses.filter((c) => c.code === 'BIS201' || c.code === 'IS202');
-  }, [courses]);
-
-  // Selected course tab: default to BIS201 (Monday)
-  const [selectedCourseCode, setSelectedCourseCode] = useState<string>('BIS201');
-
-  // Find active/selected session for the chosen course
-  const currentSession = useMemo(() => {
-    if (selectedCourseCode === 'IS202') {
-      return classSessions.find((s) => s.courseCode === 'IS202' && s.sessionNumber === 8) ||
-        classSessions.find((s) => s.courseCode === 'IS202') ||
-        classSessions[0];
-    }
-    // Default to Week 8 of BIS201
-    return classSessions.find((s) => s.courseCode === 'BIS201' && s.sessionNumber === 8) ||
-      classSessions.find((s) => s.courseCode === 'BIS201') ||
-      classSessions[7];
-  }, [classSessions, selectedCourseCode]);
+  const teacherCourses = courses;
+  const [courseChoice, setSelectedCourseCode] = useState('');
+  const [sessionChoice, setSessionChoice] = useState('');
+  const selectedCourseCode = courseChoice || teacherCourses[0]?.code || '';
+  const sessions = classSessions.filter((s) => s.courseCode === selectedCourseCode);
+  const currentSession = sessions.find((s) => s.id === sessionChoice)
+    ?? selectSession(sessions, demoTime) ?? sessions.at(-1);
+  const trackedHours = currentSession?.trackedHours ?? 1;
+  const hourSlots = ([1, 2, 3] as const).slice(0, trackedHours);
 
   // Sorting mode: 'TIME_ASC' (who checked in first), 'NAME_ASC', 'STATUS'
   const [sortBy, setSortBy] = useState<'TIME_ASC' | 'NAME_ASC' | 'STATUS'>('TIME_ASC');
@@ -108,7 +98,7 @@ export const LiveAttendancePage: React.FC = () => {
 
   // Hourly attendance count and total potential points
   const totalHourlyPointsAttended = sessionRecords.filter((r) => r.verificationStatus === 'PRESENT').length;
-  const maxPossiblePoints = (studentList.length || 1) * 3;
+  const maxPossiblePoints = Math.max(1, studentList.length * trackedHours);
   const totalEnrolled = studentList.length || 1;
 
   // Build merged roster with 3 hourly records
@@ -225,39 +215,30 @@ export const LiveAttendancePage: React.FC = () => {
   };
 
   // Submit Override with REQUIRED reason
-  const handleSaveOverride = (e: React.FormEvent) => {
+  const handleSaveOverride = async (e: React.FormEvent) => {
     e.preventDefault();
 
-    if (!sessionTimeStatus.active) {
-      setOverrideError(
-        `Отметку можно ставить ТОЛЬКО во время урока (${currentSession?.dayOfWeek} с 16:00 до 19:00). ${sessionTimeStatus.reason || ''}`
-      );
-      return;
-    }
+    if (!currentSession) return;
 
     if (!overrideReason.trim()) {
       setOverrideError('Обязательно укажите причину ручного изменения отметки (требование аудита).');
       return;
     }
 
-    if (overrideModal.currentRecordId) {
-      overrideAttendance(overrideModal.currentRecordId, overrideNewStatus, overrideReason.trim());
-    } else {
-      createManualAttendance(
-        currentSession.id,
-        overrideModal.studentId,
-        overrideNewStatus,
-        overrideReason.trim(),
-        overrideModal.hourSlot
-      );
+    const result = overrideModal.currentRecordId
+      ? await overrideAttendance(overrideModal.currentRecordId, overrideNewStatus, overrideReason.trim())
+      : await createManualAttendance(currentSession.id, overrideModal.studentId, overrideNewStatus, overrideReason.trim(), overrideModal.hourSlot);
+    if (!result?.success) {
+      setOverrideError(result?.message || 'Could not save attendance.');
+      return;
     }
-
     setOverrideModal({ isOpen: false, studentId: '', studentName: '', hourSlot: 1, initialStatus: 'NOT_YET' });
     setOverrideReason('');
     setOverrideError(null);
   };
 
   const isSessionOpen = currentSession?.status === 'OPEN';
+  const reviewRequests = sessionRecords.filter((r) => r.verificationStatus === 'MANUAL_REVIEW');
 
   return (
     <div className="space-y-6 max-w-6xl mx-auto pb-12">
@@ -271,7 +252,7 @@ export const LiveAttendancePage: React.FC = () => {
                 Расписание занятий преподавателя Ainur Issabek
               </h2>
               <p className="text-xs text-slate-500">
-                Занятия проводятся по понедельникам и вторникам с 16:00 до 19:00 (с 4 до 7). У каждого курса свой отдельный список студентов.
+                Choose an assigned course and a session to see its roster.
               </p>
             </div>
           </div>
@@ -280,100 +261,25 @@ export const LiveAttendancePage: React.FC = () => {
             <TestTimePicker />
           </div>
           <span className="text-[11px] font-semibold bg-[#E8F0FE] text-[#0B3D91] px-2.5 py-1 rounded-full border border-[#D6E2F5]">
-            2 активных курса в неделю
+            {teacherCourses.length} assigned courses
           </span>
         </div>
 
         {/* Course Cards Toggle: Monday vs Tuesday */}
         <div className="grid grid-cols-1 md:grid-cols-2 gap-3.5 pt-1">
-          {/* Card 1: Monday - BIS201 */}
-          <button
-            type="button"
-            onClick={() => setSelectedCourseCode('BIS201')}
-            className={`p-4 rounded-xl border text-left transition-all cursor-pointer relative ${
-              selectedCourseCode === 'BIS201'
-                ? 'border-[#0B3D91] bg-gradient-to-br from-[#F5F8FD] to-[#E8F0FE]/60 ring-2 ring-[#0B3D91]/20 shadow-xs'
-                : 'border-[#D6E2F5] bg-white hover:bg-slate-50'
-            }`}
-          >
-            <div className="flex items-start justify-between">
-              <div className="flex items-center gap-2">
-                <span className="w-7 h-7 rounded-lg bg-[#0B3D91] text-white flex items-center justify-center text-xs font-bold shadow-xs">
-                  ПН
-                </span>
-                <div>
-                  <span className="text-xs font-bold text-[#0B3D91]">
-                    BIS201 • Basics of Information Systems
-                  </span>
-                  <div className="text-[11px] text-slate-500 flex items-center gap-2 mt-0.5">
-                    <span className="flex items-center gap-1 font-semibold text-slate-700">
-                      <Clock className="w-3 h-3 text-[#0B3D91]" />
-                      Понедельник 16:00 – 19:00 (с 4 до 7)
-                    </span>
-                    <span>•</span>
-                    <span>Hall 301</span>
-                  </div>
-                </div>
-              </div>
-              {selectedCourseCode === 'BIS201' && (
-                <span className="w-5 h-5 rounded-full bg-[#0B3D91] text-white flex items-center justify-center text-xs">
-                  <Check className="w-3 h-3" />
-                </span>
-              )}
-            </div>
-
-            <div className="mt-3 pt-2.5 border-t border-slate-200/80 flex items-center justify-between text-xs text-slate-600">
-              <span>Группа студентов: <strong>{enrollments.filter((e) => e.courseCode === 'BIS201' && e.status === 'Approved').length} чел.</strong></span>
-              <span className="text-emerald-700 font-bold bg-emerald-50 px-2 py-0.5 rounded-full border border-emerald-200 text-[10px]">
-                Главный корпус • 150м
-              </span>
-            </div>
-          </button>
-
-          {/* Card 2: Tuesday - IS202 */}
-          <button
-            type="button"
-            onClick={() => setSelectedCourseCode('IS202')}
-            className={`p-4 rounded-xl border text-left transition-all cursor-pointer relative ${
-              selectedCourseCode === 'IS202'
-                ? 'border-[#0B3D91] bg-gradient-to-br from-[#F5F8FD] to-[#E8F0FE]/60 ring-2 ring-[#0B3D91]/20 shadow-xs'
-                : 'border-[#D6E2F5] bg-white hover:bg-slate-50'
-            }`}
-          >
-            <div className="flex items-start justify-between">
-              <div className="flex items-center gap-2">
-                <span className="w-7 h-7 rounded-lg bg-emerald-700 text-white flex items-center justify-center text-xs font-bold shadow-xs">
-                  ВТ
-                </span>
-                <div>
-                  <span className="text-xs font-bold text-emerald-800">
-                    IS202 • Enterprise Databases & SQL
-                  </span>
-                  <div className="text-[11px] text-slate-500 flex items-center gap-2 mt-0.5">
-                    <span className="flex items-center gap-1 font-semibold text-slate-700">
-                      <Clock className="w-3 h-3 text-emerald-700" />
-                      Вторник 16:00 – 19:00 (с 4 до 7)
-                    </span>
-                    <span>•</span>
-                    <span>Computer Lab 204</span>
-                  </div>
-                </div>
-              </div>
-              {selectedCourseCode === 'IS202' && (
-                <span className="w-5 h-5 rounded-full bg-emerald-700 text-white flex items-center justify-center text-xs">
-                  <Check className="w-3 h-3" />
-                </span>
-              )}
-            </div>
-
-            <div className="mt-3 pt-2.5 border-t border-slate-200/80 flex items-center justify-between text-xs text-slate-600">
-              <span>Группа студентов: <strong>{enrollments.filter((e) => e.courseCode === 'IS202' && e.status === 'Approved').length} чел.</strong></span>
-              <span className="text-emerald-700 font-bold bg-emerald-50 px-2 py-0.5 rounded-full border border-emerald-200 text-[10px]">
-                SITE Block B • 150м
-              </span>
-            </div>
-          </button>
+          {teacherCourses.map((course) => (
+            <button key={course.id} type="button" onClick={() => { setSelectedCourseCode(course.code); setSessionChoice(''); }}
+              className={'p-4 rounded-xl border text-left ' + (selectedCourseCode === course.code ? 'border-[#0B3D91] bg-[#E8F0FE]' : 'border-[#D6E2F5]')}>
+              <span className="block text-xs font-bold text-[#0B3D91]">{course.code} · {course.title}</span>
+              <span className="block text-xs text-slate-500">{course.schedule} · {course.room} · {course.enrolledCount} students</span>
+            </button>
+          ))}
         </div>
+        {sessions.length > 0 && <label className="block text-sm">Session <select className="ml-2 rounded border p-2"
+          value={currentSession?.id ?? ''} onChange={(event) => setSessionChoice(event.target.value)}>
+          {sessions.map((session) => <option key={session.id} value={session.id}>{session.date} · {session.startTime}–{session.endTime}</option>)}
+        </select></label>}
+        {!currentSession && <p className="text-sm text-slate-500">No sessions scheduled for this course.</p>}
       </div>
 
       {/* 2. ACTIVE SESSION HEADER & TIME WINDOW STATUS */}
@@ -404,7 +310,7 @@ export const LiveAttendancePage: React.FC = () => {
                 <Clock className="w-3 h-3" />
                 <span>
                   {sessionTimeStatus.active
-                    ? `Урок идет (${currentSession?.dayOfWeek} 16:00–19:00)`
+                    ? `Lesson in progress (${currentSession?.dayOfWeek} ${currentSession?.startTime}–${currentSession?.endTime})`
                     : `Вне времени урока`}
                 </span>
               </span>
@@ -419,7 +325,7 @@ export const LiveAttendancePage: React.FC = () => {
               </span>
               <span>•</span>
               <span className="font-semibold text-[#0B3D91]">
-                {currentSession?.dayOfWeek} с 16:00 до 19:00 (с 4 до 7)
+                {currentSession?.dayOfWeek} {currentSession?.startTime}–{currentSession?.endTime}
               </span>
               <span>•</span>
               <span>Радиус геозоны: 150м</span>
@@ -430,8 +336,8 @@ export const LiveAttendancePage: React.FC = () => {
           <div className="flex flex-wrap items-center gap-3">
             <button
               type="button"
-              onClick={() => toggleSessionStatus(currentSession.id)}
-              disabled={!sessionTimeStatus.active && !isSessionOpen}
+              onClick={() => currentSession && toggleSessionStatus(currentSession.id)}
+              disabled={!currentSession && !isSessionOpen}
               className={`px-4 py-2.5 rounded-xl font-bold text-xs flex items-center gap-2 transition-all shadow-sm cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed ${
                 isSessionOpen
                   ? 'bg-red-600 hover:bg-red-700 text-white'
@@ -459,7 +365,7 @@ export const LiveAttendancePage: React.FC = () => {
             <div className="flex items-center gap-2">
               <Clock className="w-4 h-4 text-amber-700 shrink-0" />
               <span>
-                <strong>Внимание:</strong> Занятие {selectedCourseCode} проводится по расписанию: <strong>{currentSession?.dayOfWeek} с 16:00 до 19:00</strong>.
+                <strong>Внимание:</strong> Занятие {selectedCourseCode} проводится по расписанию: <strong>{currentSession?.dayOfWeek} {currentSession?.startTime}–{currentSession?.endTime}</strong>.
                 Сейчас в системе: {sessionTimeStatus.currentDay} {sessionTimeStatus.currentTime}. Журнал в режиме только для чтения.
               </span>
             </div>
@@ -497,7 +403,7 @@ export const LiveAttendancePage: React.FC = () => {
             <h3 className="text-base font-extrabold text-[#0F1F3D] flex items-center gap-2">
               <span>Журнал посещаемости: {selectedCourseCode}</span>
               <span className="text-xs font-semibold px-2 py-0.5 bg-blue-100 text-[#0B3D91] rounded-full">
-                {currentSession?.dayOfWeek} 16:00 – 19:00
+                {currentSession?.dayOfWeek} {currentSession?.startTime}–{currentSession?.endTime}
               </span>
             </h3>
             <p className="text-xs text-slate-500">
@@ -614,7 +520,7 @@ export const LiveAttendancePage: React.FC = () => {
                       {h1Record?.verificationStatus === 'PRESENT' ? (
                         <div className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-lg font-mono text-[11px] font-bold bg-emerald-50 text-emerald-800 border border-emerald-200">
                           <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600" />
-                          <span>{h1Record.checkInTime.split(' ')[1] || '16:04'}</span>
+                          <span>{h1Record.checkInTime.split(' ')[1] || '—'}</span>
                           {h1Record.isOverride && <span className="text-[9px] text-emerald-600 font-sans">(руч.)</span>}
                         </div>
                       ) : h1Record?.verificationStatus === 'REJECTED' ? (
@@ -632,7 +538,7 @@ export const LiveAttendancePage: React.FC = () => {
                       {h2Record?.verificationStatus === 'PRESENT' ? (
                         <div className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-lg font-mono text-[11px] font-bold bg-emerald-50 text-emerald-800 border border-emerald-200">
                           <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600" />
-                          <span>{h2Record.checkInTime.split(' ')[1] || '17:02'}</span>
+                          <span>{h2Record.checkInTime.split(' ')[1] || '—'}</span>
                           {h2Record.isOverride && <span className="text-[9px] text-emerald-600 font-sans">(руч.)</span>}
                         </div>
                       ) : h2Record?.verificationStatus === 'REJECTED' ? (
@@ -650,7 +556,7 @@ export const LiveAttendancePage: React.FC = () => {
                       {h3Record?.verificationStatus === 'PRESENT' ? (
                         <div className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-lg font-mono text-[11px] font-bold bg-emerald-50 text-emerald-800 border border-emerald-200">
                           <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600" />
-                          <span>{h3Record.checkInTime.split(' ')[1] || '18:03'}</span>
+                          <span>{h3Record.checkInTime.split(' ')[1] || '—'}</span>
                           {h3Record.isOverride && <span className="text-[9px] text-emerald-600 font-sans">(руч.)</span>}
                         </div>
                       ) : h3Record?.verificationStatus === 'REJECTED' ? (
@@ -666,7 +572,7 @@ export const LiveAttendancePage: React.FC = () => {
                     {/* Total points */}
                     <td className="py-3 px-3 text-center">
                       <span className={`inline-flex items-center justify-center px-2.5 py-0.5 rounded-full font-bold text-xs ${
-                        presentCount === 3
+                        presentCount === trackedHours
                           ? 'bg-emerald-100 text-emerald-800 border border-emerald-300'
                           : presentCount === 2
                           ? 'bg-blue-100 text-blue-800 border border-blue-300'
@@ -674,7 +580,7 @@ export const LiveAttendancePage: React.FC = () => {
                           ? 'bg-amber-100 text-amber-800 border border-amber-300'
                           : 'bg-slate-100 text-slate-500 border border-slate-200'
                       }`}>
-                        {presentCount} / 3
+                        {presentCount} / {trackedHours}
                       </span>
                     </td>
 
@@ -716,6 +622,21 @@ export const LiveAttendancePage: React.FC = () => {
         </div>
       </div>
 
+      <section className="rounded-2xl border border-[#D6E2F5] bg-white p-5">
+        <h3 className="font-bold">Manual review requests</h3>
+        {!reviewRequests.length && <p className="mt-2 text-sm text-slate-500">No pending reviews for this session.</p>}
+        {reviewRequests.map((record) => <article key={record.id} className="mt-2 flex flex-wrap items-center justify-between gap-2 border-t pt-2 text-sm">
+          <span>{record.studentName} · Hour {record.hourSlot} · {record.manualReviewNote}</span>
+          <button type="button" className="font-semibold text-[#0B3D91] underline" onClick={() => {
+            setOverrideModal({ isOpen: true, studentId: record.studentId, studentName: record.studentName,
+              hourSlot: record.hourSlot ?? 1, currentRecordId: record.id, initialStatus: 'MANUAL_REVIEW' });
+            setOverrideNewStatus('PRESENT');
+            setOverrideReason('');
+            setOverrideError(null);
+          }}>Review attendance</button>
+        </article>)}
+      </section>
+
       {/* Manual Override Modal with Hour Selection */}
       {overrideModal.isOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/40 backdrop-blur-xs">
@@ -724,7 +645,7 @@ export const LiveAttendancePage: React.FC = () => {
               <div className="flex items-center gap-2">
                 <ShieldCheck className="w-5 h-5 text-[#0B3D91]" />
                 <h3 className="font-bold text-sm text-[#0F1F3D]">
-                  Ручное выставление отметки (3 часа пары)
+                  Manual attendance override
                 </h3>
               </div>
               <button
@@ -736,14 +657,6 @@ export const LiveAttendancePage: React.FC = () => {
               </button>
             </div>
 
-            {!sessionTimeStatus.active && (
-              <div className="p-3 bg-amber-50 border border-amber-300 text-amber-900 rounded-xl text-xs flex items-center gap-2">
-                <Lock className="w-4 h-4 text-amber-700 shrink-0" />
-                <span>
-                  <strong>Внимание:</strong> Выставление отметок заблокировано. Занятие проводится по расписанию: {currentSession?.dayOfWeek} с 16:00 до 19:00.
-                </span>
-              </div>
-            )}
 
             <form onSubmit={handleSaveOverride} className="space-y-4">
               <div>
@@ -752,7 +665,7 @@ export const LiveAttendancePage: React.FC = () => {
                   {overrideModal.studentName}
                 </p>
                 <span className="text-[11px] text-[#0B3D91] font-semibold">
-                  Предмет: {selectedCourseCode} ({currentSession?.dayOfWeek} 16:00–19:00)
+                  Предмет: {selectedCourseCode} ({currentSession?.dayOfWeek} {currentSession?.startTime}–{currentSession?.endTime})
                 </span>
               </div>
 
@@ -762,7 +675,7 @@ export const LiveAttendancePage: React.FC = () => {
                   Выберите час занятия для выставления отметки
                 </label>
                 <div className="grid grid-cols-3 gap-1.5">
-                  {([1, 2, 3] as const).map((slot) => {
+                  {hourSlots.map((slot) => {
                     const studentRecordForSlot = sessionRecords.find(
                       (r) => r.studentId === overrideModal.studentId && (r.hourSlot || 1) === slot
                     );
@@ -786,7 +699,7 @@ export const LiveAttendancePage: React.FC = () => {
                       >
                         <div className="font-bold text-xs">Час {slot}</div>
                         <div className="text-[9px] opacity-90">
-                          {slot === 1 ? '16:00–17:00' : slot === 2 ? '17:00–18:00' : '18:00–19:00'}
+                          {currentSession?.startTime}–{currentSession?.endTime}
                         </div>
                       </button>
                     );
@@ -859,7 +772,7 @@ export const LiveAttendancePage: React.FC = () => {
                 </button>
                 <button
                   type="submit"
-                  disabled={!sessionTimeStatus.active}
+                  disabled={!currentSession}
                   className="px-4 py-2 text-xs font-bold bg-[#0B3D91] hover:bg-[#0A3278] disabled:bg-slate-300 disabled:cursor-not-allowed text-white rounded-xl shadow-xs transition-colors cursor-pointer"
                 >
                   {sessionTimeStatus.active ? 'Сохранить (Записать в аудит)' : 'Заблокировано по времени'}

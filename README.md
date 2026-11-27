@@ -1,45 +1,31 @@
-# KBTU University Management System (UMS)
-**Unified Academic & Geolocation Portal (wsp.kbtu.kz style)**
+# KBTU University Management System
 
-Developed for the **Team 39 (Monday group)** database and software architecture project in **BIS201 Basics of Information Systems**, School of Information Technology and Engineering (SITE), Kazakh-British Technical University.
+Team 39 · Kazakhstan-British Technical University · BIS201
 
----
+The portal uses React, TypeScript and Vite for the frontend, Express for the API, and a shared Supabase PostgreSQL database. The backend enforces account and course scope for students, teachers, managers and administrators.
 
-## 🏛️ Project Overview
+## Run locally
 
-The KBTU UMS is a production-grade institutional academic portal featuring role-based dashboards, course enrollment tracking, academic standing monitoring, and an automated **GPS Geolocation Attendance Tracking Hero Feature** that verifies student physical presence in classrooms via spherical Haversine distance computations against classroom centroid coordinates.
+1. Use Node.js 22.12 or newer. Run `npm ci` in the repository root and again in `server/`.
+2. Copy `server/.env.example` to `server/.env`, configure PostgreSQL, and supply the Supabase CA certificate when using Supabase.
+3. For a fresh development database only, run `database/01_schema.sql`, `database/02_seed.sql`, and `database/03_dashboards.sql` in order. Then run `npm run migrate` from `server/`. On an existing database, use only the migrations.
+4. If the database is fresh, provision credentials with `scripts/bootstrap.ps1` on Windows or `npm run provision -- <username>` from `server/`, with the password supplied privately over standard input.
+5. Copy `.env.example` to `.env.local` in the repository root. `VITE_API_URL=auto` uses the local backend on port 4000.
+6. Start the backend with `npm start` in `server/` and the frontend with `npm run dev` in the repository root.
 
----
+On Windows, if npm reports a malformed ComSpec path, set `$env:ComSpec = "$env:SystemRoot\System32\cmd.exe"` in the current PowerShell session.
 
-## 👥 Demo Accounts (Dev Reference)
+- [Local portal](http://localhost:5173/)
+- [API health](http://localhost:4000/api/health)
+- [Deployment, team access, backup and demonstration](docs/deployment.md)
+- [QA report and verified account roster](docs/qa.md)
+- [Express API and tests](server/README.md)
 
-> **Note on Security**: There is **no shared demo password anymore** and no password is written in the code, the UI or this file. The first time a demo account signs in, its owner creates their own password.
->
-> - **Rules:** 8–20 characters, at least one letter and one digit; must not contain the name, student ID or corporate e-mail login (first letter of the name + `_` + surname, e.g. `a_bagdat`); no common passwords (`password`, `qwerty`, `12345`, …) and no runs like `aaaa` or `1234`.
-> - **Change:** the new password must not be similar to the current one and must not match any of the last 3 passwords.
-> - **Students** must set a new password every semester (Fall = Aug–Dec, Spring = Jan–Jul); after the semester changes a "Password change required" screen opens before anything else.
-> - **Keep me signed in on this device:** with this checkbox ticked, only that browser signs in automatically (for up to 30 days). Signing out or changing the password turns it off.
-> - **Storage (demo only):** only a salted PBKDF2-SHA256 hash is stored, in the browser's `localStorage`. This is not real protection; a backend is needed for production. To reset all demo passwords, clear the site data for `localhost:5173`.
+## Academic data
 
-### 🎓 Students
-- `s_niyazkhan` — **Saniya Niyazkhan** (Student ID: `24B031926`, Major: Information Systems, Year 2, GPA: 3.92)
-- `s_nurlybay` — **Mubarak Nurlybay** (Student ID: `24B031901`, Major: Information Systems, Year 2, At-Risk Candidate)
-- `s_yugai` — **Yugai Elya** (Student ID: `25B032145`, Major: Information Systems, Year 1, GPA: 3.88)
-- `s_bagdat` — **Bagdat Alua** (Student ID: `24B031666`, Major: Information Systems, Year 2, GPA: 3.65)
-- `s_zholdassali` — **Amir Zholdassali** (Student ID: `24B031787`, Major: Information Systems, Year 2, At-Risk Candidate)
+Approved registrations count toward enrolled credits. Pending and approved requests reserve seats and count toward the 21 ECTS registration threshold. Courses with no ECTS value use the database credit value for that calculation. The system preserves existing registrations. Cumulative GPA uses credit-weighted final results and the project's database grading scale.
 
-### 👨‍🏫 Faculty / Teachers
-- `t_issabek` — **Ainur Issabek** (Instructor for BIS201 Basics of Information Systems, Hall 301)
-- `t_myrzakanurov` — **Arman Myrzakanurov** (Instructor for CS101 Introduction to Computer Science)
-- `t_asubay` — **Miras Asubay** (Instructor for DB202 Database Systems & SQL)
-
-### 💼 Academic Manager
-- `m_askarova` — **Asel Askarova** (Academic Registrar & Enrollment Management Office)
-
-### 🛡️ System Administrator
-- `admin` — **KBTU System Administrator** (IT Infrastructure & Security Audit Operations)
-
----
+GPS verification uses the assigned classroom coordinates, radius, lesson time in Asia/Almaty, approved enrollment, and the current open session. Registrations, assessment revisions, attendance, account settings, warnings, and event registrations are stored in PostgreSQL. The current schema holds weekly schedules on courses and dated attendance sessions separately.
 
 ## 🎯 Hero Feature: GPS Geofenced Attendance System
 
@@ -53,10 +39,10 @@ $$d = R \cdot \Delta\sigma$$
 
 ### Verification Rule Engine:
 1. **Distance Check**: Device coordinates must resolve within `allowed_campus_radius_m` (150 m).
-2. **Enrollment Check**: Student must possess an approved registration record for the target course (`BIS201`).
+2. **Enrollment Check**: Student must possess an approved registration record for the target course and semester.
 3. **Session Window**: Target class session must be actively toggled `OPEN` by the instructor.
 4. **Duplicate Prevention**: Enforces a strict composite unique constraint on `(session_id, student_id)`.
-5. **GPS Drift / Weak Signal**: Provides simulated weak indoor GPS handling with a prompt for Wi-Fi verification and direct submission of a manual review request to the teacher.
+5. **GPS Drift / Weak Signal**: Weak or suspicious GPS readings can be routed to the teacher for manual review.
 
 ### Verification States:
 - `PRESENT`: Green status chip with exact computed meter distance and verification timestamp.
@@ -65,120 +51,3 @@ $$d = R \cdot \Delta\sigma$$
 - `INDOOR GPS DRIFT`: Weak signal alert with Wi-Fi AP fallback note and manual review dispatch.
 
 ---
-
-## 🧭 Role-Based Navigation Architecture (No Numbering)
-
-The application enforces strict Role-Based Access Control (RBAC). A user navigating to an unauthorized portal route receives a friendly **403 — Access denied** screen. Sidebar items use clear icon-label pairings with zero numerical ordering:
-
-- **Student Portal**:
-  - Dashboard
-  - My Courses
-  - Attendance Check-in *(Hero)*
-  - Schedule
-  - Grades & Transcript
-  - Course Registration
-  - Messages
-  - Teacher Ratings
-  - News
-
-- **Teacher Portal**:
-  - Dashboard
-  - My Courses
-  - Live Attendance *(Hero: Window toggle, live student counter, manual override with required audit justification, CSV export)*
-  - Gradebook
-  - Lessons (15-week syllabus)
-  - Students
-  - Research (h-index, citations)
-  - Messages
-  - News
-
-- **Academic Manager Portal**:
-  - Dashboard
-  - Courses
-  - Enrollments
-  - At-Risk Attendance *(Hero: Identifies students below the 80% KBTU attendance threshold over 15 sessions, early-warning SMS/email broadcast)*
-  - Performance Reports
-  - Mentors
-  - Messages
-  - News
-
-- **Administrator Portal**:
-  - Dashboard
-  - Users
-  - Roles & Permissions
-  - Audit Log *(Hero: Complete searchable, filterable security & GPS trail with CSV export)*
-  - Courses
-  - Applications
-  - System Settings (Geofence parameters, centroid coordinates, Wi-Fi AP configuration)
-
-- **Shared Project Group** *(Accessible to all roles at the bottom of the sidebar)*:
-  - Database & ERD
-  - Team 39
-  - Project Status
-
----
-
-## 🎨 Blue and White Design System
-
-Built strictly to the specification:
-- **Primary Blue**: `#0B3D91` (KBTU Academic Blue)
-- **Hover Blue**: `#0A3278`
-- **Accent Light Blue**: `#E8F0FE`
-- **Border**: `#D6E2F5`
-- **Background**: `#F5F8FD`
-- **Cards**: Pure White `#FFFFFF` with 12px / 16px border-radius
-- **Typography**: Inter with subtle weights and generous spacing
-- **Status Colors**: Success Emerald `#10B981` / `#059669` and Error Red `#EF4444` / `#DC2626` strictly reserved for verification states.
-- **Charts**: Recharts rendered in blue tonal palettes (`#0B3D91`, `#2563EB`, `#60A5FA`, `#D6E2F5`).
-- **Mobile Responsive**: Fully adaptive down to 375px mobile viewports with collapsible hamburger drawer navigation.
-
----
-
-## 💾 Relational Data Model (3NF)
-
-```sql
--- Core Entities (PostgreSQL Dialect)
-STUDENTS (student_id PK, username UNIQUE, full_name, email, major, year, gpa)
-TEACHERS (teacher_id PK, username UNIQUE, full_name, email, department)
-ROOMS (room_id PK, room_number, building, capacity, centroid_lat, centroid_lng, wifi_bssid)
-COURSES (course_code PK, title, credits, teacher_id FK, max_places)
-CLASS_SESSIONS (session_id PK, course_code FK, room_id FK, session_number [1..15], allowed_campus_radius_m = 150, status [OPEN/CLOSED])
-ENROLLMENTS (enrollment_id PK, student_id FK, course_code FK, semester, status, grade)
-ATTENDANCE_RECORDS (attendance_id PK, session_id FK, student_id FK, check_in_time, gps_latitude, gps_longitude, distance_to_center_m, verification_status, rejection_reason, is_override, override_by, override_reason, UNIQUE(session_id, student_id))
-AUDIT_LOGS (log_id PK, timestamp, username, role, action, details, ip_address, status)
-```
-
-### Seeded Mock Data:
-- **15 Weekly Sessions for BIS201**: Session 8 is active/open today (Week 8, Monday 16:00–19:00, Hall 301).
-- **~42 Pre-seeded Attendance Records**: Realistic mix of PRESENT, REJECTED (exceeded 150m boundary), and teacher manual overrides across sessions 1–8.
-- **Audit Logs**: Pre-seeded with logins, geofence checks, teacher overrides, and security lockout events.
-
----
-
-## 🛠️ What is Mocked in Frontend Mode
-
-1. **Hardware GPS Geolocation**: The application supports real browser Geolocation API (`navigator.geolocation`) with an instant Dev Location Simulator offering 3 presets:
-   - *Inside Hall 301* (~5m from centroid)
-   - *Outside Campus* (~850m away in city)
-   - *Indoor GPS Drift* (low accuracy simulation triggering manual review)
-2. **Early-Warning Email/SMS**: Simulated with instant UI toast feedback and recorded to the audit trail.
-3. **Wi-Fi BSSID Handshake**: Pre-configured for Week 10 roadmap (`KBTU-STUDENT-AP-301`).
-4. **CSV Exporting**: Generates real downloadable `.csv` data files directly in the browser.
-
----
-
-## 🚀 Running the Application
-
-```bash
-# Navigate to project folder
-cd "C:\Users\User\.gemini\antigravity\scratch\kbtu-ums"
-
-# Install dependencies (already installed)
-npm install
-
-# Start Vite development server
-npm run dev
-
-# Or build production bundle
-npm run build
-```

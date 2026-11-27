@@ -22,7 +22,8 @@ export const AtRiskAttendancePage: React.FC = () => {
     t,
   } = useApp();
 
-  const [selectedCourse, setSelectedCourse] = useState<string>('BIS201');
+  const [courseSelection, setSelectedCourse] = useState('');
+  const selectedCourse = courseSelection || courses[0]?.code || '';
   const [selectedProgram, setSelectedProgram] = useState<string>('ALL');
   const [selectedYear, setSelectedYear] = useState<string>('ALL');
   const [toastMessage, setToastMessage] = useState<string | null>(null);
@@ -53,19 +54,20 @@ export const AtRiskAttendancePage: React.FC = () => {
   // Filter only those at risk (< 80%)
   const atRiskList = studentRates.filter((item) => item.rate.isAtRisk);
 
-  const handleSendNotice = (studentId: string) => {
-    const res = sendEarlyWarningNotice(studentId, selectedCourse);
+  const handleSendNotice = async (studentId: string) => {
+    const res = await sendEarlyWarningNotice(studentId, selectedCourse);
     if (res.success) {
       setToastMessage(res.message);
       setTimeout(() => setToastMessage(null), 5000);
     }
   };
 
-  const handleSendAllNotices = () => {
-    atRiskList.forEach((item) => {
-      sendEarlyWarningNotice(item.student.id, selectedCourse);
-    });
-    setToastMessage(`Dispatched early-warning notices to all ${atRiskList.length} students at risk.`);
+  const handleSendAllNotices = async () => {
+    let sent = 0;
+    for (const item of atRiskList) {
+      if ((await sendEarlyWarningNotice(item.student.id, selectedCourse)).success) sent++;
+    }
+    setToastMessage('Attendance warnings sent: ' + sent + ' of ' + atRiskList.length + '.');
     setTimeout(() => setToastMessage(null), 5000);
   };
 

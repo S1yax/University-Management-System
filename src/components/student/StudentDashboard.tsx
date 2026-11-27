@@ -1,5 +1,6 @@
-import React from 'react';
-import { useApp } from '../../context/AppContext';
+import React, { useEffect, useState } from 'react';
+import { selectSession, useApp } from '../../context/AppContext';
+import { coursesApi, type AttestationItem } from '../../api/coursesApi';
 import {
   GraduationCap,
   BookOpen,
@@ -26,41 +27,65 @@ import {
 } from 'recharts';
 
 export const StudentDashboard: React.FC = () => {
-  const { currentUser, classSessions, attendanceRecords, setActivePath, getStudentAttendanceRate, courses, enrollments, t } = useApp();
+  const [attestationItems, setAttestationItems] = useState<AttestationItem[]>([]);
+  const [dataLoading, setDataLoading] = useState(false);
+  const [dataError, setDataError] = useState('');
 
-  const bisRate = currentUser
-    ? getStudentAttendanceRate(currentUser.id, 'BIS201')
-    : { attended: 0, total: 8, percentage: 0, isAtRisk: false };
+  const { currentUser, classSessions, attendanceRecords, setActivePath, getStudentAttendanceRate, courses, enrollments, t, demoTime } = useApp();
+  const studentId = currentUser?.studentId;
 
-  // Student enrollments
-  const myEnrollments = enrollments.filter(
-    (e) => e.studentId === currentUser?.id && e.status === 'Approved'
-  );
-  const totalCredits = myEnrollments.reduce((acc, curr) => acc + curr.credits, 0);
+  useEffect(() => {
+    if (!studentId) return;
+    let active = true;
+    let pending = false;
+    setDataLoading(true);
+    const load = async () => {
+      if (pending) return;
+      pending = true;
+      try {
+        const response = await coursesApi.attestation({ studentId });
+        if (!active) return;
+        if (response.code !== 200) throw new Error('Could not load course assessments.');
+        setAttestationItems(response.body.items);
+        setDataError('');
+      } catch {
+        if (active) setDataError('Could not load course assessments.');
+      } finally {
+        pending = false;
+        if (active) setDataLoading(false);
+      }
+    };
+    void load();
+    const timer = window.setInterval(load, 5000);
+    return () => { active = false; window.clearInterval(timer); };
+  }, [studentId]);
 
-  // Active session
-  const activeSession = classSessions.find((s) => s.id === 'ses-8') || classSessions[7];
-  const isCheckedIn = attendanceRecords.some(
-    (r) => r.sessionId === activeSession?.id && r.studentId === currentUser?.id && r.verificationStatus === 'PRESENT'
-  );
-
-  // Recharts data: Weekly Attendance Trend in shades of blue
-  const attendanceTrendData = [
-    { week: 'W1', attendance: 100 },
-    { week: 'W2', attendance: 95 },
-    { week: 'W3', attendance: 92 },
-    { week: 'W4', attendance: 90 },
-    { week: 'W5', attendance: 94 },
-    { week: 'W6', attendance: 88 },
-    { week: 'W7', attendance: 91 },
-    { week: 'W8', attendance: bisRate.percentage },
-  ];
-
-  // Course Grade Points Chart
-  const gradeData = myEnrollments.map((e) => ({
-    course: e.courseCode,
-    score: e.score || 85,
+  const approvedEnrollments = enrollments.filter((e) => e.studentId === studentId && e.status === 'Approved');
+  const totalCredits = approvedEnrollments.reduce((sum, e) => sum + e.credits, 0);
+  const approvedEcts = approvedEnrollments.reduce((sum, e) => sum + (e.ectsCredits ?? e.credits), 0);
+  const rates = approvedEnrollments.map((e) => getStudentAttendanceRate(e.studentId, e.courseCode));
+  const attended = rates.reduce((sum, rate) => sum + rate.attended, 0);
+  const total = rates.reduce((sum, rate) => sum + rate.total, 0);
+  const percentage = total ? Math.round(100 * attended / total) : null;
+  const bisRate = { percentage, isAtRisk: percentage !== null && percentage < 80 };
+  const activeSession = selectSession(classSessions, demoTime);
+  const isCheckedIn = attendanceRecords.some((r) => r.sessionId === activeSession?.id && r.verificationStatus === 'PRESENT');
+  const weeks = new Map<number, { present: number; total: number }>();
+  for (const session of classSessions.filter((item) => item.completed)) {
+    const week = weeks.get(session.sessionNumber) ?? { present: 0, total: 0 };
+    week.total += session.trackedHours ?? 1;
+    week.present += attendanceRecords.filter((r) => r.sessionId === session.id && r.verificationStatus === 'PRESENT').length;
+    weeks.set(session.sessionNumber, week);
+  }
+  const attendanceTrendData = [...weeks].sort(([a], [b]) => a - b).map(([week, value]) => ({
+    week: 'W' + week, attendance: Math.round(100 * value.present / value.total),
   }));
+
+// Course Grade Points Chart
+const gradeData = attestationItems.map((item) => ({
+  course: item.course_code,
+  score: item.total ?? item.rating,
+}));
 
   return (
     <div className="space-y-6 max-w-6xl mx-auto pb-12">
@@ -102,10 +127,10 @@ export const StudentDashboard: React.FC = () => {
             <Award className="w-5 h-5 text-[#0B3D91]" />
           </div>
           <div className="text-3xl sm:text-4xl font-extrabold text-[#0B3D91]">
-            {currentUser?.gpa ? currentUser.gpa.toFixed(2) : '3.85'}
+            {currentUser?.gpa?.toFixed(2) ?? '—'}
           </div>
           <p className="text-[11px] text-slate-500">
-            Grading Scale: 4.00 (Honor List)
+            {currentUser?.gpa == null ? 'GPA not available' : 'Grading scale: 4.00'}
           </p>
         </div>
 
@@ -118,10 +143,10 @@ export const StudentDashboard: React.FC = () => {
             <BookOpen className="w-5 h-5 text-[#0B3D91]" />
           </div>
           <div className="text-3xl sm:text-4xl font-extrabold text-[#0F1F3D]">
-            {totalCredits} <span className="text-xl font-normal text-slate-400">/ 21</span>
+            {totalCredits} <span className="text-xl font-normal text-slate-400">credits</span>
           </div>
           <p className="text-[11px] text-slate-500">
-            Maximum academic limit: 21 ECTS
+            {approvedEcts} approved ECTS · 21 ECTS registration limit
           </p>
         </div>
 
@@ -129,21 +154,21 @@ export const StudentDashboard: React.FC = () => {
         <div className="bg-white rounded-2xl border border-[#D6E2F5] p-5 shadow-sm space-y-1">
           <div className="flex items-center justify-between text-slate-400">
             <span className="text-xs font-bold uppercase tracking-wider text-slate-500">
-              BIS201 Attendance
+              Attendance
             </span>
             <MapPin className="w-5 h-5 text-[#0B3D91]" />
           </div>
           <div className={`text-3xl sm:text-4xl font-extrabold ${bisRate.isAtRisk ? 'text-red-600' : 'text-emerald-700'}`}>
-            {bisRate.percentage}%
+            {percentage === null ? '—' : percentage + '%'}
           </div>
           <div className="text-[11px]">
-            {bisRate.isAtRisk ? (
+            {percentage === null ? 'No completed classes' : bisRate.isAtRisk ? (
               <span className="text-red-600 font-bold flex items-center gap-1">
                 <AlertTriangle className="w-3 h-3" /> Below 80% (Disqualification Risk)
               </span>
             ) : (
               <span className="text-emerald-700 font-bold flex items-center gap-1">
-                <CheckCircle2 className="w-3 h-3" /> Above 80% Exam Threshold
+                <CheckCircle2 className="w-3 h-3" /> Meets the 80% attendance threshold
               </span>
             )}
           </div>
@@ -158,14 +183,10 @@ export const StudentDashboard: React.FC = () => {
             <span>TODAY'S LECTURE SESSION</span>
           </div>
           <h3 className="text-xl font-extrabold">
-            BIS201: {activeSession?.title}
+            {activeSession ? activeSession.courseCode + ': ' + activeSession.title : 'No lessons today'}
           </h3>
           <p className="text-xs text-blue-100 flex items-center gap-3">
-            <span>Hall 301 (Main Campus)</span>
-            <span>•</span>
-            <span>Monday 16:00 – 19:00</span>
-            <span>•</span>
-            <span>Instructor: Ainur Issabek</span>
+            {activeSession && <span>{activeSession.roomName} · {activeSession.startTime}–{activeSession.endTime} · {activeSession.instructorName}</span>}
           </p>
         </div>
 
@@ -200,9 +221,9 @@ export const StudentDashboard: React.FC = () => {
             <h3 className="text-xs font-bold uppercase tracking-wider text-[#0F1F3D]">
               Attendance Consistency Trend
             </h3>
-            <span className="text-[11px] font-bold text-[#0B3D91]">Weeks 1 – 8</span>
+            <span className="text-[11px] font-bold text-[#0B3D91]">{attendanceTrendData.length} weeks</span>
           </div>
-          <div className="h-56 w-full">
+          {!attendanceTrendData.length ? <p className="py-6 text-sm text-slate-500">No completed lessons.</p> : <div className="h-56 w-full">
             <ResponsiveContainer width="100%" height="100%">
               <AreaChart data={attendanceTrendData}>
                 <defs>
@@ -213,7 +234,7 @@ export const StudentDashboard: React.FC = () => {
                 </defs>
                 <CartesianGrid strokeDasharray="3 3" stroke="#E8F0FE" />
                 <XAxis dataKey="week" stroke="#94A3B8" fontSize={11} />
-                <YAxis domain={[50, 100]} stroke="#94A3B8" fontSize={11} />
+                <YAxis domain={[0, 100]} stroke="#94A3B8" fontSize={11} />
                 <Tooltip
                   contentStyle={{
                     backgroundColor: '#FFFFFF',
@@ -232,7 +253,7 @@ export const StudentDashboard: React.FC = () => {
                 />
               </AreaChart>
             </ResponsiveContainer>
-          </div>
+          </div>}
         </div>
 
         {/* Current Academic Scores */}
@@ -243,7 +264,7 @@ export const StudentDashboard: React.FC = () => {
             </h3>
             <span className="text-[11px] font-bold text-[#0B3D91]">Current Scores (100)</span>
           </div>
-          <div className="h-56 w-full">
+          {dataLoading ? <p role="status" className="py-6 text-sm">Loading assessments…</p> : dataError ? <p role="alert" className="py-6 text-sm text-red-700">{dataError}</p> : !gradeData.length ? <p className="py-6 text-sm text-slate-500">No grades available.</p> : <div className="h-56 w-full">
             <ResponsiveContainer width="100%" height="100%">
               <BarChart data={gradeData}>
                 <CartesianGrid strokeDasharray="3 3" stroke="#E8F0FE" />
@@ -260,7 +281,7 @@ export const StudentDashboard: React.FC = () => {
                 <Bar dataKey="score" fill="#0B3D91" radius={[6, 6, 0, 0]} />
               </BarChart>
             </ResponsiveContainer>
-          </div>
+          </div>}
         </div>
       </div>
     </div>

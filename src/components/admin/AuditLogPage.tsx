@@ -35,7 +35,7 @@ export const AuditLogPage: React.FC = () => {
     const matchesSearch =
       entry.username.toLowerCase().includes(searchQuery.toLowerCase()) ||
       entry.details.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      entry.ipAddress.toLowerCase().includes(searchQuery.toLowerCase()) ||
+      (entry.ipAddress ?? '').toLowerCase().includes(searchQuery.toLowerCase()) ||
       entry.action.toLowerCase().includes(searchQuery.toLowerCase());
 
     const matchesAction =
@@ -176,7 +176,7 @@ export const AuditLogPage: React.FC = () => {
                     {log.details}
                   </td>
                   <td className="py-3 px-4 whitespace-nowrap text-slate-500">
-                    {log.ipAddress}
+                    {log.ipAddress || '—'}
                   </td>
                   <td className="py-3 px-4 whitespace-nowrap font-sans">
                     {log.status === 'SUCCESS' ? (

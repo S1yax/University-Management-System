@@ -57,17 +57,17 @@ export const AdminDashboard: React.FC = () => {
           <div className="text-3xl font-extrabold text-[#0B3D91]">
             {users.length}
           </div>
-          <p className="text-[11px] text-slate-500">5 Students, 3 Teachers, 1 Mgr</p>
+          <p className="text-[11px] text-slate-500">{users.filter((user) => user.role === 'STUDENT').length} students · {users.filter((user) => user.role === 'TEACHER').length} teachers</p>
         </div>
 
         <div className="bg-white rounded-2xl border border-[#D6E2F5] p-5 shadow-sm space-y-1">
           <span className="text-xs font-bold uppercase tracking-wider text-slate-500">
-            Total Audit Records
+            Recent Audit Records
           </span>
           <div className="text-3xl font-extrabold text-[#0F1F3D]">
             {activeAuditCount}
           </div>
-          <p className="text-[11px] text-emerald-600 font-bold">100% Immutable</p>
+          <p className="text-[11px] text-emerald-600 font-bold">Latest 200 records</p>
         </div>
 
         <div className="bg-white rounded-2xl border border-[#D6E2F5] p-5 shadow-sm space-y-1">
@@ -85,10 +85,20 @@ export const AdminDashboard: React.FC = () => {
             Active Geofence Nodes
           </span>
           <div className="text-3xl font-extrabold text-emerald-600">
-            3
+            {new Set(classSessions.map((session) => session.roomId)).size}
           </div>
-          <p className="text-[11px] text-slate-500">Hall 301, 442, Lab 204</p>
+          <p className="text-[11px] text-slate-500">Classrooms with scheduled sessions</p>
         </div>
+      </div>
+
+      <div className="flex flex-wrap gap-3">
+        {[
+          ['users', 'Manage Students, Teachers and Staff'],
+          ['courses', 'Manage Courses'],
+          ['applications', 'Review Enrollments'],
+          ['system-settings', 'Manage Classrooms, Sessions and Events'],
+        ].map(([path, title]) => <button key={path} type="button" onClick={() => setActivePath(path)}
+          className="rounded-xl border border-[#D6E2F5] bg-white px-4 py-3 text-sm font-semibold text-[#0B3D91]">{title}</button>)}
       </div>
 
       {/* QUICK SYSTEM CONTROLS & RECENT AUDIT SNIPPET */}

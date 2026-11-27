@@ -54,6 +54,7 @@ export interface ServerEnrollment {
   course_code: string;
   title: string;
   credits: number;
+  ects_credits: number | null;
   semester: string;
   status: 'Pending' | 'Approved' | 'Rejected';
 }
@@ -126,6 +127,5 @@ export const coursesApi = {
     attestation1?: number | null;
     attestation2?: number | null;
     finalExam?: number | null;
-    teacher: string;
   }) => call<Answer & { item?: AttestationItem }>('/attestation', json('PUT', body)),
 };

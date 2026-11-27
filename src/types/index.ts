@@ -9,6 +9,8 @@ export interface User {
   role: UserRole;
   email: string;
   avatar?: string;
+  teacherId?: string;
+  passwordChangeRequired?: boolean;
   studentId?: string; // e.g., '24B031926'
   major?: string;      // e.g., 'Information Systems'
   year?: number;       // e.g., 2
@@ -42,6 +44,10 @@ export interface Course {
   description: string;
   room: string;
   schedule: string;
+  startTime?: string;
+  endTime?: string;
+  dayOfWeek?: number;
+  ectsCredits?: number;
 }
 
 export interface ClassSession {
@@ -61,6 +67,8 @@ export interface ClassSession {
   centerLat: number;     // 43.255320
   centerLng: number;     // 76.943094
   status: 'OPEN' | 'CLOSED';
+  trackedHours?: number;
+  completed?: boolean;
 }
 
 export interface Enrollment {
@@ -72,6 +80,7 @@ export interface Enrollment {
   status: 'Approved' | 'Pending' | 'Rejected';
   grade?: string;
   score?: number;
+  ectsCredits?: number;
   credits: number;
 }
 

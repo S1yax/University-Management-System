@@ -1,14 +1,12 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { useApp } from '../../context/AppContext';
-import { Lock, Eye, EyeOff, ShieldCheck, ChevronDown, ChevronUp, UserCheck, AlertCircle, Building2, Globe } from 'lucide-react';
+import { Eye, EyeOff, ShieldCheck, ChevronDown, ChevronUp, UserCheck, AlertCircle, Building2, Globe } from 'lucide-react';
 import { Language } from '../../types';
-import { checkPassword } from '../../utils/passwordPolicy';
-import { PasswordChecklist } from './PasswordChecklist';
+import { api } from '../../api/portalApi';
+import type { User } from '../../types';
 
 export const LoginPage: React.FC = () => {
-  const { login, isAccountActivated, activateAccount, language, setLanguage, t, failedAttempts, lockoutRemainingSeconds, users, idleLoggedOut } =
-    useApp();
-
+  const { login, language, setLanguage, t, idleLoggedOut, workspaceError } = useApp();
   const [usernameInput, setUsernameInput] = useState('');
   const [passwordInput, setPasswordInput] = useState('');
   const [showPassword, setShowPassword] = useState(false);
@@ -16,91 +14,32 @@ export const LoginPage: React.FC = () => {
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [showDemoAccounts, setShowDemoAccounts] = useState(true);
   const [forgotPasswordNotice, setForgotPasswordNotice] = useState(false);
-
-  // First sign-in of an account: the user creates their own password.
-  const [mode, setMode] = useState<'signin' | 'create'>('signin');
-  const [newPassword, setNewPassword] = useState('');
-  const [confirmPassword, setConfirmPassword] = useState('');
-  const [createErrors, setCreateErrors] = useState<string[]>([]);
-
-  // "Keep me signed in on this device": automatic sign-in only on this browser, until sign-out or password change.
   const [remember, setRemember] = useState(false);
+  const [users, setUsers] = useState<User[]>([]);
 
-  const findUser = (value: string) =>
-    users.find((u) => u.username.toLowerCase() === value.trim().toLowerCase());
+  useEffect(() => {
+    if (import.meta.env.VITE_SHOW_DEMO_ACCOUNTS !== 'true') return;
+    let active = true;
+    api<{ users: User[] }>('/auth/demo-accounts').then((data) => {
+      if (active) setUsers(data.users);
+    }).catch(() => undefined);
+    return () => { active = false; };
+  }, []);
 
-  const handleSignIn = async (e: React.FormEvent) => {
-    e.preventDefault();
+  const handleSignIn = async (event: React.FormEvent) => {
+    event.preventDefault();
     setErrorMessage(null);
-    setForgotPasswordNotice(false);
-
-    if (lockoutRemainingSeconds > 0) {
-      setErrorMessage(t('lockoutMessage', { seconds: lockoutRemainingSeconds }));
-      return;
-    }
-
-    if (!usernameInput.trim()) {
-      setErrorMessage(t('invalidCredentials'));
-      return;
-    }
-
-    // Known account that has no password yet -> let the user create one.
-    const knownUser = findUser(usernameInput);
-    if (knownUser && !isAccountActivated(knownUser.username)) {
-      setPasswordInput('');
-      setCreateErrors([]);
-      setMode('create');
-      return;
-    }
-
-    if (!passwordInput.trim()) {
-      setErrorMessage(t('invalidCredentials'));
-      return;
-    }
-
     setIsSubmitting(true);
-    await new Promise((resolve) => setTimeout(resolve, 250));
-    const result = await login(usernameInput, passwordInput, remember);
+    const result = await login(usernameInput.trim(), passwordInput, remember);
+    if (!result.success) setErrorMessage(result.message);
     setIsSubmitting(false);
-
-    if (!result.success) {
-      if (result.locked) {
-        setErrorMessage(t('lockoutMessage', { seconds: 30 }));
-      } else {
-        setErrorMessage(t('invalidCredentials'));
-      }
-    }
   };
 
-  const handleCreatePassword = async (e: React.FormEvent) => {
-    e.preventDefault();
-    setCreateErrors([]);
-    setIsSubmitting(true);
-    const result = await activateAccount(usernameInput, newPassword, confirmPassword, remember);
-    setIsSubmitting(false);
-    if (!result.success) setCreateErrors(result.errors);
-  };
-
-  const backToSignIn = () => {
-    setMode('signin');
-    setNewPassword('');
-    setConfirmPassword('');
-    setCreateErrors([]);
-  };
-
-  const handleSelectDemoUser = (loginUsername: string) => {
-    backToSignIn();
-    setUsernameInput(loginUsername);
+  const handleSelectDemoUser = (username: string) => {
+    setUsernameInput(username);
     setPasswordInput('');
     setErrorMessage(null);
   };
-
-  const isLocked = lockoutRemainingSeconds > 0;
-
-  const createTarget = findUser(usernameInput);
-  const liveCheck = createTarget ? checkPassword(newPassword, createTarget) : null;
-  const createInputClass =
-    'w-full h-11 px-3.5 bg-white border border-[#D6E2F5] rounded-xl text-sm text-[#0F1F3D] placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-[#0B3D91] focus:border-transparent';
 
   const rememberCheckbox = (
     <label className="flex items-start gap-2 cursor-pointer select-none">
@@ -117,87 +56,6 @@ export const LoginPage: React.FC = () => {
         </span>
       </span>
     </label>
-  );
-
-  const createPasswordForm = (
-    <form onSubmit={handleCreatePassword} className="space-y-4">
-      <div className="p-3 bg-[#E8F0FE] border border-[#D6E2F5] rounded-xl flex items-start gap-2">
-        <ShieldCheck className="w-4 h-4 text-[#0B3D91] mt-0.5 shrink-0" />
-        <div className="text-xs text-[#0F1F3D] leading-relaxed">
-          <strong>{createTarget?.fullName}</strong> ({createTarget?.username}), this is your first sign-in. Create your own
-          password. In the production version this step will be confirmed by a link sent to your KBTU e-mail.
-        </div>
-      </div>
-
-      <div>
-        <div className="flex items-center justify-between mb-1.5">
-          <label className="block text-xs font-bold text-[#0F1F3D] uppercase tracking-wider">New password</label>
-          <button
-            type="button"
-            onClick={() => setShowPassword(!showPassword)}
-            className="text-xs font-semibold text-[#0B3D91] flex items-center gap-1"
-          >
-            {showPassword ? <EyeOff className="w-3.5 h-3.5" /> : <Eye className="w-3.5 h-3.5" />}
-            {showPassword ? 'Hide' : 'Show'}
-          </button>
-        </div>
-        <input
-          type={showPassword ? 'text' : 'password'}
-          value={newPassword}
-          onChange={(e) => setNewPassword(e.target.value)}
-          autoComplete="new-password"
-          autoFocus
-          className={createInputClass}
-        />
-        {liveCheck && (
-          <div className="mt-2.5 p-3 bg-[#F5F8FD] border border-[#D6E2F5] rounded-xl">
-            <PasswordChecklist rules={liveCheck.rules} started={newPassword.length > 0} />
-          </div>
-        )}
-      </div>
-
-      <div>
-        <label className="block text-xs font-bold text-[#0F1F3D] uppercase tracking-wider mb-1.5">
-          Repeat new password
-        </label>
-        <input
-          type={showPassword ? 'text' : 'password'}
-          value={confirmPassword}
-          onChange={(e) => setConfirmPassword(e.target.value)}
-          autoComplete="new-password"
-          className={createInputClass}
-        />
-      </div>
-
-      {rememberCheckbox}
-
-      {createErrors.length > 0 && (
-        <div className="p-3 bg-red-50 border border-red-200 rounded-xl flex items-start gap-2.5" role="alert">
-          <AlertCircle className="w-4 h-4 text-red-600 mt-0.5 shrink-0" />
-          <ul className="text-xs font-medium text-red-700 space-y-0.5">
-            {createErrors.map((message) => (
-              <li key={message}>{message}</li>
-            ))}
-          </ul>
-        </div>
-      )}
-
-      <button
-        type="submit"
-        disabled={isSubmitting || !newPassword || !confirmPassword}
-        className="w-full h-11 bg-[#0B3D91] hover:bg-[#0A3278] text-white font-semibold text-sm rounded-xl shadow-md transition-all flex items-center justify-center disabled:opacity-50 disabled:cursor-not-allowed"
-      >
-        {isSubmitting ? (
-          <div className="w-5 h-5 border-2 border-white/30 border-t-white rounded-full animate-spin" />
-        ) : (
-          <span>Create password and sign in</span>
-        )}
-      </button>
-
-      <button type="button" onClick={backToSignIn} className="w-full text-xs font-semibold text-[#0B3D91] hover:underline">
-        Back to sign in
-      </button>
-    </form>
   );
 
   return (
@@ -251,12 +109,11 @@ export const LoginPage: React.FC = () => {
           {idleLoggedOut && (
             <div className="mb-4 p-3 bg-amber-50 border border-amber-200 rounded-xl flex items-start gap-2.5 text-xs text-amber-800">
               <AlertCircle className="w-4 h-4 text-amber-600 mt-0.5 shrink-0" />
-              <span>Сессия завершена автоматически после 15 минут бездействия. Пожалуйста, выполните вход снова.</span>
+              <span>You were signed out after 15 minutes of inactivity. Sign in to continue.</span>
             </div>
           )}
 
-          {/* Form */}
-          {mode === 'create' ? createPasswordForm : (
+          {workspaceError && <p role="status" className="mb-3 text-sm text-red-700">{workspaceError}</p>}
           <form onSubmit={handleSignIn} className="space-y-4">
             {/* Login Field */}
             <div>
@@ -271,7 +128,7 @@ export const LoginPage: React.FC = () => {
                     setUsernameInput(e.target.value);
                     if (errorMessage) setErrorMessage(null);
                   }}
-                  disabled={isLocked}
+                  required
                   placeholder={t('loginPlaceholder')}
                   autoComplete="username"
                   className="w-full h-11 px-3.5 bg-white border border-[#D6E2F5] rounded-xl text-sm text-[#0F1F3D] placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-[#0B3D91] focus:border-transparent transition-all disabled:bg-slate-100 disabled:cursor-not-allowed"
@@ -301,7 +158,7 @@ export const LoginPage: React.FC = () => {
                     setPasswordInput(e.target.value);
                     if (errorMessage) setErrorMessage(null);
                   }}
-                  disabled={isLocked}
+                  required
                   placeholder={t('passwordPlaceholder')}
                   autoComplete="current-password"
                   className="w-full h-11 pl-3.5 pr-11 bg-white border border-[#D6E2F5] rounded-xl text-sm text-[#0F1F3D] placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-[#0B3D91] focus:border-transparent transition-all disabled:bg-slate-100 disabled:cursor-not-allowed"
@@ -334,7 +191,7 @@ export const LoginPage: React.FC = () => {
               <div className="p-3 bg-[#E8F0FE] border border-[#D6E2F5] rounded-xl flex items-start gap-2 animate-fadeIn">
                 <ShieldCheck className="w-4 h-4 text-[#0B3D91] mt-0.5 shrink-0" />
                 <div className="text-xs text-[#0F1F3D]">
-                  Password reset link dispatched to institutional mailbox. For demo testing, use the preconfigured demo accounts below.
+                  Contact your portal administrator to request a password reset.
                 </div>
               </div>
             )}
@@ -342,21 +199,16 @@ export const LoginPage: React.FC = () => {
             {/* Submit Button */}
             <button
               type="submit"
-              disabled={isSubmitting || isLocked}
+              disabled={isSubmitting}
               className="w-full h-11 bg-[#0B3D91] hover:bg-[#0A3278] active:bg-[#072458] text-white font-semibold text-sm rounded-xl shadow-md transition-all flex items-center justify-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-[#0B3D91]"
             >
               {isSubmitting ? (
                 <div className="w-5 h-5 border-2 border-white/30 border-t-white rounded-full animate-spin" />
-              ) : isLocked ? (
-                <span className="flex items-center gap-1.5">
-                  <Lock className="w-4 h-4" /> Locked ({lockoutRemainingSeconds}s)
-                </span>
               ) : (
                 <span>{t('signInButton')}</span>
               )}
             </button>
           </form>
-          )}
 
           {/* Security notice (passwords never exposed) */}
           <div className="mt-5 pt-4 border-t border-[#D6E2F5] text-center">
@@ -366,7 +218,7 @@ export const LoginPage: React.FC = () => {
           </div>
         </div>
 
-        {/* Collapsible Demo Accounts Box (Dev Only) */}
+        {users.length > 0 && (
         <div className="w-full mt-4 bg-white/90 backdrop-blur-sm border border-[#D6E2F5] rounded-xl overflow-hidden shadow-sm">
           <button
             type="button"
@@ -412,7 +264,7 @@ export const LoginPage: React.FC = () => {
                       </span>
                     </div>
                     <span className="text-[10px] text-slate-500 truncate">
-                      {u.fullName} {u.username === 't_issabek' && '(BIS201)'}
+                      {u.fullName}
                     </span>
                   </button>
                 ))}
@@ -420,6 +272,7 @@ export const LoginPage: React.FC = () => {
             </div>
           )}
         </div>
+        )}
       </div>
     </div>
   );

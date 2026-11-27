@@ -1,5 +1,5 @@
 import React from 'react';
-import { useApp } from '../../context/AppContext';
+import { selectSession, useApp } from '../../context/AppContext';
 import {
   Users,
   Radio,
@@ -22,25 +22,21 @@ import {
 } from 'recharts';
 
 export const TeacherDashboard: React.FC = () => {
-  const { currentUser, classSessions, attendanceRecords, setActivePath, toggleSessionStatus, t } = useApp();
+  const { currentUser, classSessions, attendanceRecords, setActivePath, toggleSessionStatus, t, courses, enrollments, demoTime, getStudentAttendanceRate } = useApp();
 
-  const activeSession = classSessions.find((s) => s.id === 'ses-8') || classSessions[7];
+  const activeSession = selectSession(classSessions, demoTime);
   const isSessionOpen = activeSession?.status === 'OPEN';
-
-  const sessionRecords = attendanceRecords.filter((r) => r.sessionId === activeSession?.id);
-  const presentCount = sessionRecords.filter((r) => r.verificationStatus === 'PRESENT').length;
-  const totalStudents = 36;
-
-  const weeklyAttendanceData = [
-    { week: 'W1', present: 35, absent: 1 },
-    { week: 'W2', present: 33, absent: 3 },
-    { week: 'W3', present: 34, absent: 2 },
-    { week: 'W4', present: 32, absent: 4 },
-    { week: 'W5', present: 34, absent: 2 },
-    { week: 'W6', present: 31, absent: 5 },
-    { week: 'W7', present: 33, absent: 3 },
-    { week: 'W8', present: presentCount, absent: totalStudents - presentCount },
-  ];
+  const approved = enrollments.filter((item) => item.status === 'Approved');
+  const totalStudents = new Set(approved.map((item) => item.studentId)).size;
+  const groupSize = approved.filter((item) => item.courseCode === activeSession?.courseCode).length;
+  const presentCount = new Set(attendanceRecords.filter((r) => r.sessionId === activeSession?.id
+    && r.verificationStatus === 'PRESENT').map((r) => r.studentId)).size;
+  const atRisk = new Set(approved.filter((e) => getStudentAttendanceRate(e.studentId, e.courseCode).isAtRisk).map((e) => e.studentId)).size;
+  const weeklyAttendanceData = classSessions.filter((session) => session.completed && session.courseCode === activeSession?.courseCode)
+    .map((session) => {
+      const present = attendanceRecords.filter((r) => r.sessionId === session.id && r.verificationStatus === 'PRESENT').length;
+      return { week: 'W' + session.sessionNumber, present, absent: Math.max(0, groupSize * (session.trackedHours ?? 1) - present) };
+    });
 
   return (
     <div className="space-y-6 max-w-6xl mx-auto pb-12">
@@ -55,7 +51,7 @@ export const TeacherDashboard: React.FC = () => {
               {currentUser?.fullName}
             </h2>
             <p className="text-xs text-slate-500 mt-1">
-              Department: {currentUser?.department} • BIS201 Basics of Information Systems
+              Department: {currentUser?.department} · {courses.length} assigned courses
             </p>
           </div>
 
@@ -78,9 +74,9 @@ export const TeacherDashboard: React.FC = () => {
             Total Enrolled Students
           </span>
           <div className="text-3xl sm:text-4xl font-extrabold text-[#0B3D91]">
-            36
+            {totalStudents}
           </div>
-          <p className="text-[11px] text-slate-500">BIS201 • Fall 2026 Semester</p>
+          <p className="text-[11px] text-slate-500">Across your assigned courses</p>
         </div>
 
         <div className="bg-white rounded-2xl border border-[#D6E2F5] p-5 shadow-sm space-y-1">
@@ -88,10 +84,10 @@ export const TeacherDashboard: React.FC = () => {
             Current Session Checked In
           </span>
           <div className="text-3xl sm:text-4xl font-extrabold text-[#0F1F3D]">
-            {presentCount} <span className="text-xl font-normal text-slate-400">/ 36</span>
+            {presentCount} <span className="text-xl font-normal text-slate-400">/ {groupSize}</span>
           </div>
           <p className="text-[11px] text-emerald-600 font-bold">
-            {Math.round((presentCount / 36) * 100)}% present in Hall 301
+            {groupSize ? Math.round(presentCount / groupSize * 100) + '% present' : 'No active group'}
           </p>
         </div>
 
@@ -100,10 +96,10 @@ export const TeacherDashboard: React.FC = () => {
             Students At-Risk (&lt;80%)
           </span>
           <div className="text-3xl sm:text-4xl font-extrabold text-red-600">
-            2
+            {atRisk}
           </div>
           <p className="text-[11px] text-red-600 font-medium">
-            Mubarak Nurlybay, Amir Zholdassali
+            Across your assigned courses
           </p>
         </div>
       </div>
@@ -125,17 +121,18 @@ export const TeacherDashboard: React.FC = () => {
               </span>
             </div>
             <h3 className="font-bold text-base text-[#0F1F3D]">
-              {activeSession?.courseCode}: {activeSession?.title}
+              {activeSession ? activeSession.courseCode + ': ' + activeSession.title : 'No sessions today'}
             </h3>
             <p className="text-xs text-slate-500">
-              {activeSession?.roomName} • Allowed radius 150m from (43.238949, 76.889709)
+              {activeSession && activeSession.roomName + ' · Campus radius ' + activeSession.allowedCampusRadiusM + ' m'}
             </p>
           </div>
 
           <div className="flex items-center gap-3">
             <button
               type="button"
-              onClick={() => toggleSessionStatus(activeSession.id)}
+              disabled={!activeSession}
+              onClick={() => activeSession && toggleSessionStatus(activeSession.id)}
               className={`px-4 py-2.5 rounded-xl font-bold text-xs flex items-center gap-2 transition-all shadow-xs ${
                 isSessionOpen
                   ? 'bg-red-600 hover:bg-red-700 text-white'
