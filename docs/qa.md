@@ -40,7 +40,7 @@ Yugai Elya's existing registrations total 14 approved and 6 pending internal cre
 | --- | --- |
 | TypeScript and Vite build | Pass. Vite reported a bundle-size advisory. |
 | Frontend automated suite | 245 passed. |
-| Backend and SQL integration suite | 55 passed, including the test that executes all 27 SQL assertions. Run with `npm test` from `server/`. |
+| Backend and SQL integration suite | 55 passed before merging the team database update. After the merge, the targeted test reran the expanded SQL suite with 37 checks. Run with `npm test` from `server/`. |
 | Chrome desktop and mobile-sized viewports | All four role dashboards passed at 1440 × 900 and 390 × 844. Also verified the account picker, refresh, teacher Gradebook, manager Audit Log and administrator Student Management. |
 | Assessment synchronization | Pass. The assigned teacher's test grade became available to the correct student and manager. Another student's grades stayed unchanged. |
 | Enrollment workflow | Pass. A new student signed in without a frontend change, submitted an enrollment, and was visible to the teacher after admin approval. The suite also checked duplicate requests, the ECTS limit, schedule conflicts and a concurrent request for the last seat. |

@@ -171,3 +171,14 @@ INSERT INTO attestation (student_id, course_code, semester, attestation_1, attes
  ('24B031926', 'CS101', 'Fall 2026', 27.0, 26.5, NULL, 'Arman Myrzakanurov'),
  ('24B031926', 'NET203', 'Fall 2026', 25.0, 26.0, NULL, 'Arman Myrzakanurov'),
  ('24B031926', 'MATH101', 'Fall 2026', 28.0, 29.0, NULL, 'Ainur Issabek');
+
+-- Accounts without a password: the password is set at the first login.
+INSERT INTO user_credentials (username, role, student_id)
+SELECT username, 'STUDENT', student_id FROM students;
+
+INSERT INTO user_credentials (username, role, teacher_id)
+SELECT username, 'TEACHER', teacher_id FROM teachers;
+
+INSERT INTO user_credentials (username, role) VALUES
+ ('m_askarova', 'MANAGER'),
+ ('admin', 'ADMIN');

@@ -10,6 +10,7 @@ This inventory compares the branch with its starting point on `main`. The pre-ex
 - `database/README.md`
 - `database/migrations/06_portal.sql`
 - `database/migrations/07_registration.sql`
+- `database/migrations/08_protect_legacy_credentials.sql`
 - `docs/changed-files.md`
 - `docs/deployment.md`
 - `docs/qa.md`

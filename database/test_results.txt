@@ -25,3 +25,13 @@ TEST 24 PASS: Saniya BIS201 28.5 + 27 + 38 = 93.5 = A-
 TEST 25 PASS: 95 = A, 87 = B+ (3.33), 50 = D, 49.9 = F
 TEST 26 PASS: Lab 204 is double-booked on Tue 16-17 (DB202, IS202), 2 students have this clash
 TEST 27 PASS: Saniya CS101 registration deleted together with its points
+TEST 28 PASS: 17 accounts (10 students, 5 teachers, manager, admin), no passwords yet, logins match
+TEST 29 PASS: student without student_id, teacher with student_id and role DEAN rejected
+TEST 30 PASS: unknown student and a 2nd account for Mubarak rejected
+TEST 31 PASS: hash without salt, iterations and date rejected (chk_password_parts)
+TEST 32 PASS: first password of Mubarak saved, history empty
+TEST 33 PASS: current hash-4, history hash-3, hash-2 (hash-1 forgotten)
+TEST 34 PASS: 4 mistakes - not locked, 5th mistake - locked for 30 s
+TEST 35 PASS: 6th mistake while locked not counted; after the lock the count is 1
+TEST 36 PASS: login_ok resets mistakes to 0; unknown login rejected
+TEST 37 PASS: Mubarak deleted together with his account and 2 old passwords
