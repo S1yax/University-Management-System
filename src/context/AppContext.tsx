@@ -129,7 +129,7 @@ function useWorkspace() {
 
   const login = async (username: string, password: string, remember: boolean) => {
     try {
-      const result = await api<{ token: string }>('/auth/login', 'POST', { username, password, remember });
+      const result = await api<{ token: string }>('/login','POST',{ username, password, remember });
       await pending.current;
       setSessionToken(result.token, remember);
       setIdleLoggedOut(false);
@@ -144,7 +144,8 @@ function useWorkspace() {
   const changePassword = async (currentPassword: string, newPassword: string, confirmPassword: string) => {
     if (newPassword !== confirmPassword) return { success: false, errors: ['Passwords do not match.'] };
     try {
-      await api('/auth/password', 'PUT', { currentPassword, newPassword });
+      await api('/change-password','POST',{ currentPassword, newPassword }
+);
       await pending.current;
       await refreshFromServer();
       return { success: true, errors: [] };

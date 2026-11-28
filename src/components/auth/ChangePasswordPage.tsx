@@ -45,11 +45,11 @@ export const ChangePasswordPage: React.FC<{ forced?: boolean }> = ({ forced = fa
         </div>
         <h2 className="text-xl font-extrabold text-[#0F1F3D]">Change password</h2>
         <p className="text-xs text-slate-500 mt-1">
-          Signed in as {currentUser.username}. Choose a different password with at least 12 characters.
+          Signed in as {currentUser.username}. Choose a different password with 8–20 characters.
         </p>
       </div>
 
-      {forced && <p className="rounded-xl bg-amber-50 p-3 text-sm">Change your initial password to continue.</p>}
+      {forced && <p className="rounded-xl bg-amber-50 p-3 text-sm">Change your password to continue.</p>}
       <form onSubmit={handleSubmit} className="bg-white rounded-2xl border border-[#D6E2F5] p-5 sm:p-6 shadow-sm space-y-4">
         <div>
           <label className="block text-xs font-bold text-[#0F1F3D] uppercase tracking-wider mb-1.5">Current password</label>
@@ -79,8 +79,8 @@ export const ChangePasswordPage: React.FC<{ forced?: boolean }> = ({ forced = fa
             value={next}
             onChange={(e) => setNext(e.target.value)}
             autoComplete="new-password"
-              minLength={12}
-              maxLength={128}
+              minLength={8}
+              maxLength={20}
             className={inputClass}
           />
           <div className="mt-2.5 p-3 bg-[#F5F8FD] border border-[#D6E2F5] rounded-xl">
@@ -96,8 +96,8 @@ export const ChangePasswordPage: React.FC<{ forced?: boolean }> = ({ forced = fa
             value={confirm}
             onChange={(e) => setConfirm(e.target.value)}
             autoComplete="new-password"
-              minLength={12}
-              maxLength={128}
+              minLength={8}
+              maxLength={20}
             className={inputClass}
           />
         </div>

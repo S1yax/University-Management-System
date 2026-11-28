@@ -80,11 +80,12 @@ test('Authorized admin registers a new identity and student registration reaches
   const { token } = auth.body;
   assert.equal(auth.body.user.passwordChangeRequired, true);
   assert.equal((await qa.call('GET', '/courses', undefined, token)).code, 403);
-  const updatedPassword = randomBytes(20).toString('base64url');
+  const updatedPassword = 'G7-' + randomBytes(7).toString('hex');
   assert.equal((await qa.call('PUT', '/auth/password', { currentPassword: password, newPassword: updatedPassword }, token)).code, 200);
   const registration = await qa.call('POST', '/enrollments', { studentId: 'QA0001', courseCode: 'BIS201' }, token);
   assert.equal(registration.code, 201);
-  const decision = await qa.request('PATCH', '/enrollments/' + registration.body.enrollment.enrollment_id, { status: 'Approved' }, 'admin');
+  const decision = await qa.request('PATCH','/enrollments/' + registration.body.enrollment.enrollment_id,{ status: 'Approved' },'m_askarova'
+);
   assert.equal(decision.code, 200);
   assert.ok((await qa.request('GET', '/workspace', undefined, 't_issabek')).body.users.some((row) => row.id === 'QA0001'));
   const actual = await qa.call('GET', '/workspace', undefined, token);
@@ -109,7 +110,11 @@ test('Two students competing for the last seat cannot both register', async () =
     }, 'admin')).code, 201);
     const login = await qa.call('POST', '/auth/login', { username, password });
     assert.equal(login.code, 200);
-    assert.equal((await qa.call('PUT', '/auth/password', { currentPassword: password, newPassword: randomBytes(20).toString('base64url') }, login.body.token)).code, 200);
+    assert.equal((await qa.call('PUT', '/auth/password',
+      {
+        currentPassword: password,
+        newPassword: 'G7-' + randomBytes(7).toString('hex')
+      },login.body.token)).code, 200);
     tokens.push(login.body.token);
   }
   const results = await Promise.all(students.map(([, studentId], index) =>

@@ -73,10 +73,20 @@ app.use(admin);
 //   1. lesson time  2. lesson OPEN  3. student enrolled  4. one check-in per hour  5. distance
 // ---------------------------------------------------------------------
 app.post('/api/checkin', roles('STUDENT'), ownStudent, route(async (req, res) => {
-  const { sessionId, studentId, latitude, longitude, time, weakSignal, accuracy } = req.body ?? {};
+  const {
+    sessionId,
+    latitude,
+    longitude,
+    time,
+    weakSignal,
+    accuracy
+  } = req.body ?? {};
+
+  const studentId = req.user.studentId;
+
   if (typeof sessionId !== 'string' || typeof studentId !== 'string' || !isNumber(latitude) || !isNumber(longitude)
       || Math.abs(latitude) > 90 || Math.abs(longitude) > 180) {
-    return reply(res, 400, 'BAD_REQUEST', 'sessionId, studentId, latitude and longitude are required.');
+    return reply(res, 400, 'BAD_REQUEST', 'sessionId, latitude and longitude are required.');
   }
   if (!ALLOW_DEMO_TIME && !isNumber(accuracy)) {
     return reply(res, 400, 'BAD_REQUEST', 'A GPS accuracy measurement is required.');
@@ -247,7 +257,11 @@ app.post('/api/override', roles('TEACHER'), assignedSession, route(async (req, r
 // Attendance % per course. asOf is optional (default: today).
 // ---------------------------------------------------------------------
 app.get('/api/attendance', roles('STUDENT', 'MANAGER', 'ADMIN'), ownStudent, route(async (req, res) => {
-  const { studentId, asOf } = req.query;
+  const { asOf } = req.query;
+
+  const studentId = req.user.role === 'STUDENT'
+    ? req.user.studentId
+    : req.query.studentId;
   if (!studentId) return reply(res, 400, 'BAD_REQUEST', 'studentId is required.');
   if (asOf && !/^\d{4}-\d{2}-\d{2}$/.test(asOf)) return reply(res, 400, 'BAD_REQUEST', 'asOf must be YYYY-MM-DD.');
   const { rows } = await pool.query(
