@@ -1,7 +1,11 @@
 // Used by bootstrap.ps1. Passwords travel over redirected process pipes to the OS vault.
 import { randomBytes } from 'node:crypto';
 import { pool } from './db.js';
-import { hashPassword } from './auth.js';
+import {
+  hashPassword,
+  ensureDatabaseAccount,
+  saveDatabasePassword
+} from './auth.js';
 import { transaction } from './transaction.js';
 
 try {
@@ -21,8 +25,10 @@ try {
   if (Buffer.concat(chunks).toString('utf8').trim() !== 'commit') throw new Error('Vault confirmation missing.');
   await transaction(async (db) => {
     await db.query('SELECT pg_advisory_xact_lock(391206)');
-    for (const { username, hash } of prepared) {
+    for (const { username, hash, password } of prepared) {
       await db.query('INSERT INTO portal_credentials (username,password_hash,must_change) VALUES ($1,$2,true)', [username, hash]);
+      await ensureDatabaseAccount(db, username);
+      await saveDatabasePassword(db, username, password);
     }
   });
 } catch (error) {

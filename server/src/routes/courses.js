@@ -77,7 +77,12 @@ courses.get('/api/enrollments', ownStudent, route(async (req, res) => {
 // All checks are inside the database function register_for_course():
 // free places, the 21-credit limit, time clashes and "already registered".
 courses.post('/api/enrollments', roles('STUDENT'), ownStudent, route(async (req, res) => {
-  const { studentId, courseCode, semester = CURRENT_SEMESTER } = req.body ?? {};
+  const {
+    courseCode,
+    semester = CURRENT_SEMESTER
+  } = req.body ?? {};
+
+  const studentId = req.user.studentId;
   if (typeof studentId !== 'string' || typeof courseCode !== 'string' || semester !== CURRENT_SEMESTER) return reply(res, 400, 'BAD_REQUEST', 'studentId and courseCode are required.');
   try {
     const { rows } = await transaction(async (db) => {
@@ -92,7 +97,9 @@ courses.post('/api/enrollments', roles('STUDENT'), ownStudent, route(async (req,
   }
 }));
 
-courses.patch('/api/enrollments/:id', roles('ADMIN','MANAGER'), route(async (req, res) => {
+courses.patch('/api/enrollments/:id',
+  roles('MANAGER'),
+  route(async (req, res) => {
   const { status } = req.body ?? {};
   if (!['Approved', 'Rejected'].includes(status) || !/^\d+$/.test(req.params.id)) {
     return reply(res, 400, 'BAD_REQUEST', 'Enter a registration ID and an Approved or Rejected status.');

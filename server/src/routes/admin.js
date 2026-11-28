@@ -1,6 +1,13 @@
 import { Router } from 'express';
 import { pool } from '../db.js';
-import { audit, hashPassword, roles, validPassword } from '../auth.js';
+import {
+  audit,
+  hashPassword,
+  roles,
+  validPassword,
+  ensureDatabaseAccount,
+  saveDatabasePassword
+} from '../auth.js';
 import { CURRENT_SEMESTER, reply, route } from '../http.js';
 import { transaction } from '../transaction.js';
 
@@ -112,10 +119,12 @@ async function writeResource(req, res) {
         await db.query('DELETE FROM ' + spec.table + ' WHERE ' + spec.key + ' = $1', [id]);
         if (spec.account) {
           const name = existing.username.toLowerCase();
+
           await db.query('DELETE FROM portal_credentials WHERE username = $1', [name]);
+          await db.query('DELETE FROM user_credentials WHERE username = $1', [name]);
           await db.query('DELETE FROM portal_profiles WHERE username = $1', [name]);
           await db.query('DELETE FROM portal_notifications WHERE recipient = $1', [name]);
-        }
+}
         await audit(req.user, 'ADMIN_DELETE', resource + ' / ' + id, db);
         return { id };
       }
@@ -134,12 +143,37 @@ async function writeResource(req, res) {
         const result = await db.query('UPDATE ' + spec.table + ' SET ' + sets + ' WHERE ' + spec.key + ' = $1 RETURNING *', [id, ...values]);
         row = result.rows[0];
       }
-      if (passwordHash) {
-        const name = row.username.toLowerCase();
-        await db.query(`INSERT INTO portal_credentials (username,password_hash,must_change) VALUES ($1,$2,true)
-          ON CONFLICT (username) DO UPDATE SET password_hash = excluded.password_hash, must_change = true`, [name,passwordHash]);
-        await db.query('DELETE FROM portal_sessions WHERE username = $1', [name]);
+      if (spec.account) {
+        await ensureDatabaseAccount(
+          db,
+          row.username.toLowerCase()
+        );
       }
+      if (passwordHash) {
+  const name = row.username.toLowerCase();
+
+  await saveDatabasePassword(
+    db,
+    name,
+    body.password
+  );
+
+  await db.query(
+    `INSERT INTO portal_credentials
+       (username, password_hash, must_change)
+     VALUES ($1, $2, true)
+     ON CONFLICT (username)
+     DO UPDATE SET
+       password_hash = excluded.password_hash,
+       must_change = true`,
+    [name, passwordHash]
+  );
+
+  await db.query(
+    'DELETE FROM portal_sessions WHERE username = $1',
+    [name]
+  );
+}
       await audit(req.user, create ? 'ADMIN_CREATE' : 'ADMIN_UPDATE', resource + ' / ' + row[spec.key], db);
       return { id: row[spec.key] };
     });
